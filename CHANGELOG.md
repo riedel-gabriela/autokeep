@@ -23,6 +23,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/) e o projeto usa
 ### Fixed
 
 - Permita executar o CI enquanto o projeto ainda não possui lockfile.
+- Compile o frontend e os provedores Cognito com as APIs atuais.
 
 ## [0.1.0] - 2026-09-14
 

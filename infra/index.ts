@@ -196,12 +196,12 @@ new aws.s3.BucketPolicy("site", {
   })),
 });
 
-const identityProviders: aws.cognito.UserPoolIdentityProvider[] = [];
+const identityProviders: aws.cognito.IdentityProvider[] = [];
 const supportedIdentityProviders: string[] = ["COGNITO"];
 const googleClientId = config.get("googleClientId");
 const googleClientSecret = config.getSecret("googleClientSecret");
 if (googleClientId && googleClientSecret) {
-  identityProviders.push(new aws.cognito.UserPoolIdentityProvider("google", {
+  identityProviders.push(new aws.cognito.IdentityProvider("google", {
     userPoolId: userPool.id,
     providerName: "Google",
     providerType: "Google",
@@ -215,7 +215,7 @@ const appleTeamId = config.get("appleTeamId");
 const appleKeyId = config.get("appleKeyId");
 const applePrivateKey = config.getSecret("applePrivateKey");
 if (appleClientId && appleTeamId && appleKeyId && applePrivateKey) {
-  identityProviders.push(new aws.cognito.UserPoolIdentityProvider("apple", {
+  identityProviders.push(new aws.cognito.IdentityProvider("apple", {
     userPoolId: userPool.id,
     providerName: "SignInWithApple",
     providerType: "SignInWithApple",
