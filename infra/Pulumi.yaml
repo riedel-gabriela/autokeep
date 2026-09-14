@@ -1,0 +1,11 @@
+name: autokeep
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: AutoKeep serverless application on AWS
+config:
+  pulumi:tags:
+    value:
+      project: autokeep
+      managed-by: pulumi

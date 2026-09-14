@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+.pulumi/
+Pulumi.*.yaml
+tmp/
+coverage/
+*.log
+docs/config.json

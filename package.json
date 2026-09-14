@@ -1,0 +1,21 @@
+{
+  "name": "autokeep",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*",
+    "infra"
+  ],
+  "scripts": {
+    "build": "npm run build -w @autokeep/domain && npm run build -w @autokeep/api && npm run build -w @autokeep/web && npm run build -w @autokeep/infra",
+    "check": "npm run typecheck --workspaces --if-present",
+    "dev:web": "npm run dev -w @autokeep/web",
+    "test": "npm run test -w @autokeep/domain && npm run test -w @autokeep/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
