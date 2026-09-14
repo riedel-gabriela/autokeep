@@ -20,6 +20,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/) e o projeto usa
 
 - Oriente a instalação e execução local em um guia passo a passo.
 
+### Fixed
+
+- Permita executar o CI enquanto o projeto ainda não possui lockfile.
+
 ## [0.1.0] - 2026-09-14
 
 ### Added

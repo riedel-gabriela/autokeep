@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,14 +17,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 20
-          cache: npm
       - run: npm install
       - run: npm run check
       - run: npm run test
       - run: npm run build
 
   deploy-production:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      vars.DEPLOY_PRODUCTION == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: validate
     runs-on: ubuntu-latest
     environment: production
@@ -35,7 +38,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 20
-          cache: npm
       - run: npm install
       - run: npm run build
       - uses: aws-actions/configure-aws-credentials@v6

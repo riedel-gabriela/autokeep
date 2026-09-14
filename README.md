@@ -419,6 +419,24 @@ Quando o nome da stack é `prod`, o projeto habilita proteção contra exclusão
 DynamoDB e Cognito, recuperação point-in-time no DynamoDB e retenção maior de
 logs. Trate a remoção dessa stack como uma operação excepcional e planejada.
 
+### Deploy pelo GitHub Actions
+
+O workflow sempre executa verificação de tipos, testes e build em pull requests
+e pushes para `main`. O deploy de produção é opt-in para não falhar ou criar
+recursos antes que a conta AWS esteja preparada.
+
+Configure no GitHub, em **Settings → Secrets and variables → Actions**:
+
+- variável `AWS_REGION` com a região da stack, como `us-east-1`;
+- variável `DEPLOY_PRODUCTION` com o valor `true`;
+- secret `AWS_DEPLOY_ROLE_ARN` com o ARN da role assumida via GitHub OIDC;
+- secret `PULUMI_ACCESS_TOKEN` com um token de acesso ao backend Pulumi.
+
+Não cadastre access key e secret key permanentes no GitHub. A pipeline solicita
+credenciais temporárias à AWS pela role OIDC. Depois de configurar os quatro
+valores, um push para `main` ou a execução manual do workflow atualiza a stack
+`prod`.
+
 ## OBD2
 
 A leitura OBD2 acontece inteiramente no navegador e usa Web Bluetooth. Para
