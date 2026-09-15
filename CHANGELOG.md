@@ -19,6 +19,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/) e o projeto usa
 ### Changed
 
 - Oriente a instalação e execução local em um guia passo a passo.
+- Simplifique o README e direcione detalhes técnicos para `docs/`.
 
 ### Fixed
 
