@@ -1,0 +1,10 @@
+name: autokeep
+description: web application to car maintenance based on OCBDII protocols
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
