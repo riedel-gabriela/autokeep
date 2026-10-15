@@ -94,6 +94,20 @@ public/         identidade visual e manifest de instalação
 docs/           requisitos originais e decisões de implementação
 ```
 
+## Frontend na Vercel
+
+O arquivo `vercel.json` define o preset Vite, a instalação das dependências de
+build, o comando `npm run build` e a saída `dist/web`.
+
+Nas configurações do projeto Vercel, use a raiz do repositório (`.`) como
+**Root Directory**. Remova referências à estrutura antiga `apps/web`.
+Essa configuração de raiz é feita no painel da Vercel; `vercel.json` não a altera.
+
+Esse deploy publica a interface estática. O servidor Express, o MySQL e o
+Mailpit são serviços do Docker local e não são iniciados pela Vercel. Login e
+dados precisam de uma API publicada e conectada ao banco antes de funcionarem
+no endereço público. A infraestrutura de nuvem continua sendo uma etapa separada.
+
 ## AWS e Pulumi
 
 O ambiente atual é **local** e não provisiona recursos AWS. Custo zero

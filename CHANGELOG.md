@@ -17,6 +17,10 @@ Todas as mudanças relevantes deste projeto serão registradas aqui.
 
 - Padronize cores e fontes da interface com a identidade AutoKeep.
 
+### Fixed
+
+- Defina o build e a saída do frontend para publicação na Vercel.
+
 ## [0.1.0] - 2026-10-15
 
 ### Added
