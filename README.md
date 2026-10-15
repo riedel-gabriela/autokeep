@@ -1,171 +1,110 @@
 # AutoKeep
 
-Aplicação web serverless para monitoramento de odômetro e manutenção de
-veículos pessoais ou frotas. O frontend é desenvolvido em React, a API roda em
-AWS Lambda e toda a infraestrutura é provisionada com Pulumi.
+Cuide do seu carro e da sua frota. Aplicação responsiva em português, com React,
+TypeScript, API Node.js e MySQL 8.0 no Docker local.
 
-Os requisitos, diagramas e decisões técnicas estão em [`docs/`](docs/).
+## Rodar localmente
 
-## Pré-requisitos
+Requisitos: Node.js 22.12 ou superior e Docker com Compose, em execução.
+Docker Desktop ou Colima com `docker-compose` também são aceitos.
 
-- Node.js 20 ou superior;
-- npm;
-- AWS CLI v2;
-- Pulumi CLI;
-- uma conta AWS e um backend de estado Pulumi.
-
-Confira as instalações:
-
-```bash
-node --version
-npm --version
-aws --version
-pulumi version
+```sh
+npm run dev
 ```
 
-## Instalação
+Abra **http://localhost:8080**. O comando cria o `.env` com senhas aleatórias,
+constrói a imagem, inicia o MySQL, aplica as migrações e cria dados de exemplo
+somente quando o banco está vazio. O primeiro início pode levar alguns minutos.
+Não é necessário instalar as dependências no host para esse comando.
 
-```bash
-git clone https://github.com/riedel-gabriela/autokeep.git
-cd autokeep
-npm install
+`npm run deve` é um alias de `npm run dev`.
+
+Em outro terminal, consulte os acessos locais:
+
+```sh
+npm run credentials
 ```
 
-Valide o projeto:
+| Perfil          | E-mail                  | Permissões                                 |
+| --------------- | ----------------------- | ------------------------------------------ |
+| Garagem pessoal | `ana@autokeep.local`    | Gerencie os próprios veículos e trocas     |
+| Gestão de frota | `marina@autokeep.local` | Gerencie veículos, motoristas e manutenção |
+| Motorista       | `lucas@autokeep.local`  | Consulte veículos atribuídos e atualize km |
 
-```bash
-npm run check
-npm run test
+A senha gerada é compartilhada pelos perfis de demonstração. O login usa
+hash bcrypt e sessão opaca com expiração, persistida no banco. Esse provedor
+local é bloqueado quando `NODE_ENV=production`.
+
+Os e-mails de convites e alertas são capturados pelo **Mailpit** em
+**http://localhost:8025**. Nenhuma mensagem é enviada para a internet.
+
+## Uso
+
+- **Meu carro:** consulte a próxima troca por tempo e quilometragem, registre
+  leituras e trocas de óleo, acompanhe a média diária e o histórico.
+- **Frota:** veja alertas e situação dos veículos, pesquise e filtre, convide
+  motoristas e atribua ou desatribua veículos preservando todo o histórico.
+- **Convites:** copie o link ou abra o e-mail no Mailpit. O destinatário pode
+  criar sua conta pelo convite ou entrar com uma conta existente. Válido por
+  sete dias; apenas o hash do token fica no banco.
+- **Notificações:** consulte avisos de manutenção e calibração no aplicativo.
+  O avaliador local é executado ao iniciar e a cada 15 minutos.
+- **Espaços:** crie garagens e frotas adicionais e alterne pelo menu lateral.
+
+## Parar e persistir
+
+Use `Ctrl+C` no terminal do desenvolvimento para parar os serviços ou:
+
+```sh
+npm run down
+```
+
+Os dados ficam no volume `autokeep-local_mysql-data`. Parar/recriar os
+containers preserva os dados. Preserve também o `.env`: trocar a senha nele
+não altera automaticamente a senha de um banco que já foi inicializado.
+Não use `down -v` se quiser manter os dados.
+
+Somente a aplicação (`8080`) e a caixa de e-mails (`8025`) são publicadas no
+loopback. O MySQL fica acessível apenas pela rede interna do Compose.
+As pastas de código são montadas no container com atualização automática.
+Depois de alterar dependências, execute `npm run dev` novamente para reconstruir.
+
+## Compilar no host
+
+Para usar editor, TypeScript e compilação no host:
+
+```sh
+npm ci
 npm run build
 ```
 
-## Executar localmente
+O build gera a SPA em `dist/web`. A API usa `createApp()` separado do ponto de
+entrada HTTP e o avaliador de manutenção tem uma função independente, para
+permitir os adaptadores Lambda e EventBridge na etapa de infraestrutura.
 
-O frontend roda em `http://localhost:5173`. A autenticação, a API e o banco de
-dados usam uma stack AWS de desenvolvimento, portanto ela precisa existir antes
-de iniciar a interface.
+## Estrutura
 
-### 1. Autentique a AWS e o Pulumi
-
-Exemplo com um perfil AWS SSO:
-
-```bash
-aws configure sso --profile autokeep-dev
-aws sso login --profile autokeep-dev
-export AWS_PROFILE=autokeep-dev
-aws sts get-caller-identity
-pulumi login
+```text
+src/web/        interface React responsiva
+src/shared/     tipos e regras de manutenção independentes da interface
+src/server/     API, autorização, MySQL, e-mails e avaliador de alertas
+db/             migrações SQL versionadas
+scripts/        inicialização Docker e consulta dos acessos locais
+public/         identidade visual e manifest de instalação
+docs/           requisitos originais e decisões de implementação
 ```
 
-Se você não usa SSO, configure um perfil AWS pelo método adotado na sua conta.
+## AWS e Pulumi
 
-### 2. Configure a stack de desenvolvimento
+O ambiente atual é **local** e não provisiona recursos AWS. Custo zero
+recorrente na AWS com MySQL gerenciado não é garantido pelo Free Tier.
 
-Na primeira execução:
+Na fase de nuvem, um projeto Pulumi terá duas stacks isoladas, `dev` e `prod`,
+com funções Lambda, banco MySQL gerenciado, frontend estático e identidade
+externa. `npm run dev` continuará sendo o fluxo local. `pulumi up --stack dev`
+provisionará o ambiente de nuvem; uma stack de produção não executa Vite ou
+Docker Compose. DNS, CI/CD e infraestrutura ficam para essa etapa.
 
-```bash
-pulumi -C infra stack init dev
-pulumi -C infra config set aws:region us-east-1
-pulumi -C infra config set senderEmail voce@example.com
-```
+Consulte [as decisões e a cobertura dos requisitos](docs/implementation.md).
 
-Se a stack já existe:
-
-```bash
-pulumi -C infra stack select dev
-```
-
-### 3. Provisione a infraestrutura
-
-```bash
-./scripts/deploy.sh dev
-```
-
-O script instala as dependências, executa testes e build e aplica o programa
-Pulumi na AWS.
-
-Após o deploy, confirme o endereço configurado em `senderEmail` pela mensagem
-enviada pelo Amazon SES.
-
-### 4. Configure o frontend local
-
-```bash
-cp docs/config.example.json docs/config.json
-cp apps/web/.env.example apps/web/.env.local
-```
-
-Consulte os valores da stack:
-
-```bash
-pulumi -C infra config get aws:region
-pulumi -C infra stack output apiEndpoint
-pulumi -C infra stack output userPoolId
-pulumi -C infra stack output userPoolClientId
-```
-
-Preencha `docs/config.json` com os valores da stack:
-
-```json
-{
-  "apiBaseUrl": "",
-  "authority": "https://cognito-idp.<REGIAO>.amazonaws.com/<USER_POOL_ID>",
-  "clientId": "<USER_POOL_CLIENT_ID>",
-  "redirectUri": "http://localhost:5173",
-  "logoutUri": "http://localhost:5173"
-}
-```
-
-Em `apps/web/.env.local`, defina o endpoint retornado pelo Pulumi:
-
-```dotenv
-AUTOKEEP_API_PROXY_TARGET=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com
-```
-
-### 5. Inicie o frontend
-
-```bash
-npm run dev:web
-```
-
-Acesse [http://localhost:5173](http://localhost:5173).
-
-## Comandos principais
-
-| Comando | Descrição |
-| --- | --- |
-| `npm run dev:web` | Inicia o frontend local |
-| `npm run check` | Verifica os tipos |
-| `npm run test` | Executa os testes |
-| `npm run build` | Compila todos os workspaces |
-| `./scripts/deploy.sh dev` | Atualiza a stack de desenvolvimento |
-| `pulumi -C infra preview` | Exibe mudanças de infraestrutura |
-
-## Produção
-
-Use uma stack independente:
-
-```bash
-pulumi -C infra stack init prod
-pulumi -C infra config set aws:region us-east-1
-pulumi -C infra config set senderEmail notificacoes@seu-dominio.com
-./scripts/deploy.sh prod
-```
-
-O GitHub Actions sempre valida tipos, testes e build. O deploy automático só é
-habilitado quando `DEPLOY_PRODUCTION=true`, `AWS_REGION`,
-`AWS_DEPLOY_ROLE_ARN` e `PULUMI_ACCESS_TOKEN` estiverem configurados no
-repositório.
-
-## Segurança
-
-- não versione `.env.local`, `docs/config.json`, chaves ou tokens;
-- armazene segredos de provedores com `pulumi config set --secret`;
-- use perfis AWS com credenciais temporárias e menor privilégio.
-
-## Documentação
-
-- [Especificação técnica](docs/technical-specification.pdf)
-- [Arquitetura](docs/architecture.md)
-- [Contrato OpenAPI](docs/openapi.yaml)
-- [Exemplo de configuração local](docs/config.example.json)
-- [Changelog](CHANGELOG.md)
+Sem commits ou pushes automáticos.

@@ -1,0 +1,540 @@
+@import '@fontsource/nunito-sans/400.css';
+@import '@fontsource/nunito-sans/600.css';
+@import '@fontsource/nunito-sans/700.css';
+@import '@fontsource/nunito-sans/800.css';
+:root {
+  --forest: #173e2c;
+  --forest-deep: #103326;
+  --forest-hover: #285d3f;
+  --sage: #527d5d;
+  --mint: #d7f0d9;
+  --lime: #b8de42;
+  --canvas: #f5f8f2;
+  --surface: #fff;
+  --line: #dce8da;
+  --line-strong: #c3d6c0;
+  --text: #193b2b;
+  --muted: #5d7464;
+  --on-dark: #c4dfc8;
+  --success: #236e43;
+  --success-soft: #e1f2e1;
+  --warning: #875e15;
+  --warning-soft: #fff3d8;
+  --danger: #a44443;
+  --danger-soft: #fff0ed;
+}
+:root {
+  font-family: 'Nunito Sans', system-ui, sans-serif;
+  color: var(--text);
+  background: var(--canvas);
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+h1,
+h2,
+h3 {
+  font-family: 'Nunito Sans', system-ui, sans-serif;
+}
+.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--mint);
+  color: var(--forest-deep);
+  font-weight: 800;
+  font-size: 24px;
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: var(--sage);
+}
+.login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.login-card {
+  padding: min(12vh, 100px) max(7vw, 30px);
+  max-width: 700px;
+}
+.login h1 {
+  font-size: clamp(32px, 4vw, 54px);
+  letter-spacing: -0.05em;
+  line-height: 1.1;
+  margin: 30px 0 16px;
+}
+.login h1 span {
+  color: var(--sage);
+}
+.login-card > p {
+  color: var(--muted);
+}
+.login form {
+  display: grid;
+  gap: 15px;
+  max-width: 380px;
+  margin-top: 34px;
+}
+.login-art {
+  background: linear-gradient(135deg, var(--forest-deep), var(--forest-hover));
+  display: grid;
+  place-items: center;
+  padding: 40px;
+}
+.art-card {
+  border: 1px solid #ffffff55;
+  border-radius: 24px;
+  padding: 45px;
+  color: white;
+  background: #ffffff13;
+  min-width: min(340px, 100%);
+}
+.art-card span,
+.art-card strong {
+  display: block;
+}
+.art-card strong {
+  font: 800 26px 'Nunito Sans';
+  margin: 30px 0;
+}
+.hint {
+  font-size: 13px;
+  margin-top: 24px;
+}
+.shell {
+  display: grid;
+  grid-template-columns: 235px 1fr;
+  min-height: 100vh;
+}
+.sidebar {
+  background: var(--forest);
+  color: white;
+  padding: 30px 18px;
+  display: flex;
+  flex-direction: column;
+}
+.brand {
+  font: 800 21px 'Nunito Sans';
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+}
+.sidebar nav {
+  display: grid;
+  gap: 7px;
+  margin-top: 60px;
+}
+.sidebar nav button,
+.account button {
+  background: transparent;
+  border: 0;
+  color: var(--on-dark);
+  text-align: left;
+  padding: 13px 15px;
+  border-radius: 11px;
+}
+.sidebar nav button.selected,
+.sidebar nav button:hover {
+  color: white;
+  background: #ffffff22;
+}
+.account {
+  margin-top: auto;
+  display: grid;
+  gap: 5px;
+  padding: 15px;
+}
+.account small {
+  color: var(--on-dark);
+}
+.account button {
+  padding-left: 0;
+}
+.content {
+  max-width: 1400px;
+  width: 100%;
+  padding: 52px clamp(25px, 5vw, 78px);
+  margin: auto;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+header h1 {
+  font-size: 32px;
+  letter-spacing: -0.04em;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+}
+.actions button,
+form button {
+  border: 0;
+  border-radius: 10px;
+  background: var(--forest);
+  color: white;
+  padding: 12px 20px;
+  font-weight: 700;
+}
+.actions select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  padding: 10px;
+}
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 32px 0 45px;
+}
+.summary article,
+.vehicle,
+.team {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 23px;
+}
+.summary article span,
+.vehicle-stats small {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.summary article strong {
+  display: block;
+  font: 800 33px 'Nunito Sans';
+  margin: 10px 0 1px;
+}
+.summary article small {
+  color: var(--muted);
+}
+.summary .red strong {
+  color: var(--danger);
+}
+.summary .amber strong {
+  color: var(--warning);
+}
+.section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  margin: 26px 0 18px;
+}
+.section-title h2 {
+  font-size: 24px;
+  margin: 0;
+}
+.section-title p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+.list {
+  display: grid;
+  gap: 10px;
+}
+.attention {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  padding: 18px 22px;
+  color: var(--text);
+}
+.attention b {
+  min-width: 180px;
+}
+.attention span:nth-child(2) {
+  flex: 1;
+  color: var(--muted);
+}
+.attention span:last-child {
+  color: var(--forest);
+  font-weight: 700;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(275px, 1fr));
+  gap: 15px;
+}
+.vehicle-head {
+  display: flex;
+  justify-content: space-between;
+}
+.vehicle-head span {
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 11px;
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 700;
+}
+.vehicle-head span.due {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.vehicle-head span.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.vehicle h3 {
+  margin: 27px 0 5px;
+}
+.vehicle p,
+.vehicle small {
+  color: var(--muted);
+}
+.vehicle-stats {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  margin-top: 26px;
+  padding-top: 20px;
+  gap: 12px;
+}
+.vehicle-stats b {
+  display: block;
+  margin-top: 5px;
+}
+.team {
+  margin-top: 30px;
+}
+.empty {
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  padding: 35px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 20px 0;
+}
+form label {
+  display: grid;
+  gap: 7px;
+  color: var(--forest);
+  font-weight: 700;
+  font-size: 13px;
+}
+form input,
+form select {
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  padding: 12px;
+  background: white;
+  color: var(--text);
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #102c20aa;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.modal {
+  width: min(460px, 100%);
+  max-height: 95vh;
+  overflow: auto;
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  position: relative;
+}
+.modal form {
+  display: grid;
+  gap: 12px;
+}
+.close {
+  position: absolute;
+  right: 20px;
+  top: 18px;
+  border: 0;
+  background: transparent;
+  font-size: 25px;
+}
+.center {
+  padding: 80px;
+  text-align: center;
+}
+@media (max-width: 850px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+  .login-art {
+    display: none;
+  }
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    padding: 15px;
+    display: block;
+  }
+  .sidebar nav {
+    display: flex;
+    margin-top: 15px;
+  }
+  .account {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+  }
+  .content {
+    padding: 28px 18px;
+  }
+  header,
+  .section-title {
+    align-items: start;
+    flex-direction: column;
+  }
+  .summary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .attention {
+    flex-wrap: wrap;
+  }
+  .attention b {
+    min-width: 0;
+  }
+}
+@media (max-width: 520px) {
+  .summary {
+    grid-template-columns: 1fr;
+  }
+  .actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .actions select {
+    max-width: 100%;
+  }
+}
+.login-logo {
+  display: block;
+  width: min(325px, 100%);
+  height: auto;
+  margin: -18px 0 4px -7px;
+}
+.art-emblem {
+  display: block;
+  width: 155px;
+  height: 155px;
+  object-fit: contain;
+  margin: -10px auto 24px;
+}
+.art-card {
+  text-align: center;
+}
+.art-card strong {
+  margin: 16px 0;
+}
+.sidebar-emblem {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  flex: none;
+}
+.brand {
+  gap: 7px;
+  padding: 0 3px;
+}
+.brand span {
+  letter-spacing: -0.045em;
+  color: var(--on-dark);
+}
+.brand strong {
+  color: var(--lime);
+}
+
+/* Shared states and typography */
+:focus-visible {
+  outline: 3px solid var(--lime);
+  outline-offset: 3px;
+}
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.sidebar nav button.selected {
+  box-shadow: inset 3px 0 var(--lime);
+}
+.actions button:hover,
+form button:hover {
+  background: var(--forest-hover);
+}
+.attention:hover {
+  border-color: var(--sage);
+  background: #f9fcf6;
+}
+.summary .red {
+  border-color: #eecbc6;
+  background: var(--danger-soft);
+}
+.summary .amber {
+  border-color: #eddcb2;
+  background: var(--warning-soft);
+}
+.login-art {
+  background: radial-gradient(
+    circle at 66% 34%,
+    #326a43 0,
+    var(--forest) 46%,
+    var(--forest-deep) 100%
+  );
+}
+.art-card {
+  border-color: #b8de4260;
+}
+.art-card span {
+  color: var(--mint);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+.art-card p {
+  color: #d3e7d4;
+}
+.login .hint code {
+  color: var(--forest);
+  font-weight: 700;
+}

@@ -1,33 +1,24 @@
 # Changelog
 
-Todas as mudanças relevantes deste projeto serão documentadas neste arquivo.
-
-O formato segue [Keep a Changelog](https://keepachangelog.com/) e o projeto usa
-[Semantic Versioning](https://semver.org/).
+Todas as mudanças relevantes deste projeto serão registradas aqui.
 
 ## [Unreleased]
 
 ### Added
 
-- Ofereça monitoramento pessoal e de frotas com o duplo relógio.
-- Calibre a estimativa diária do odômetro com até três leituras.
-- Proteja o acesso por organização, papel e vínculo do motorista.
-- Envie alertas de manutenção por SES e eventos pelo SNS.
-- Implante toda a aplicação na AWS por stacks Pulumi.
-- Documente a API REST com OpenAPI.
+- Gerencie o próprio carro com leituras, previsões e trocas de óleo.
+- Acompanhe a frota, os motoristas e as próximas manutenções.
+- Convide motoristas e preserve o histórico ao mudar atribuições.
+- Consulte alertas, e-mails locais e a auditoria do seu espaço.
+- Inicie aplicação e MySQL com um comando Docker na porta 8080.
+- Mostre a marca AutoKeep no login, no menu e nos ícones.
 
 ### Changed
 
-- Oriente a instalação e execução local em um guia passo a passo.
-- Simplifique o README e direcione detalhes técnicos para `docs/`.
+- Padronize cores e fontes da interface com a identidade AutoKeep.
 
-### Fixed
-
-- Permita executar o CI enquanto o projeto ainda não possui lockfile.
-- Compile o frontend e os provedores Cognito com as APIs atuais.
-
-## [0.1.0] - 2026-09-14
+## [0.1.0] - 2026-10-15
 
 ### Added
 
-- Registre a especificação inicial e os diagramas do AutoKeep.
+- Ofereça uma demonstração local com acessos de gestor e motorista.

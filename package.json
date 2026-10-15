@@ -3,19 +3,41 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*",
-    "services/*",
-    "infra"
-  ],
-  "scripts": {
-    "build": "npm run build -w @autokeep/domain && npm run build -w @autokeep/api && npm run build -w @autokeep/web && npm run build -w @autokeep/infra",
-    "check": "npm run typecheck --workspaces --if-present",
-    "dev:web": "npm run dev -w @autokeep/web",
-    "test": "npm run test -w @autokeep/domain && npm run test -w @autokeep/api"
-  },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "deve": "npm run dev",
+    "dev:container": "tsx watch --ignore src/web src/server/server.ts",
+    "down": "node scripts/dev.mjs down",
+    "credentials": "node scripts/credentials.mjs",
+    "build": "tsc --noEmit && vite build",
+    "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml"
+  },
+  "dependencies": {
+    "@fontsource/nunito-sans": "5.3.0",
+    "bcryptjs": "3.0.3",
+    "cookie": "2.0.1",
+    "express": "5.2.1",
+    "express-rate-limit": "8.7.0",
+    "lucide-react": "1.49.0",
+    "mysql2": "3.24.5",
+    "nodemailer": "10.0.12",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.3",
+    "@types/node": "24.3.0",
+    "@types/nodemailer": "7.0.1",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "6.1.1",
+    "prettier": "3.9.9",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vite": "8.3.2"
   }
 }
