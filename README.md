@@ -78,9 +78,8 @@ npm ci
 npm run build
 ```
 
-O build gera a SPA em `dist/web`. A API usa `createApp()` separado do ponto de
-entrada HTTP e o avaliador de manutenção tem uma função independente, para
-permitir os adaptadores Lambda e EventBridge na etapa de infraestrutura.
+O build gera a SPA em `dist/web`. A API local usa MySQL; a função da Vercel
+usa DynamoDB Standard na AWS.
 
 ## Estrutura
 
@@ -103,21 +102,41 @@ Nas configurações do projeto Vercel, use a raiz do repositório (`.`) como
 **Root Directory**. Remova referências à estrutura antiga `apps/web`.
 Essa configuração de raiz é feita no painel da Vercel; `vercel.json` não a altera.
 
-Esse deploy publica a interface estática. O servidor Express, o MySQL e o
-Mailpit são serviços do Docker local e não são iniciados pela Vercel. Login e
-dados precisam de uma API publicada e conectada ao banco antes de funcionarem
-no endereço público. A infraestrutura de nuvem continua sendo uma etapa separada.
+O deploy publica a interface Vite e a API em uma Vercel Function. Ela acessa
+uma única tabela DynamoDB, `autokeep-dev`, na região `us-east-1`. A tabela usa
+`pk` e `sk` como chaves String, classe Standard, modo provisionado com 5 RCU e
+5 WCU fixos, sem índices, backups contínuos, replicação ou KMS próprio.
+Esses valores cabem na cota gratuita de 25 RCU, 25 WCU e 25 GB por conta;
+tráfego acima da capacidade é limitado pelo DynamoDB. Armazenamento e outros
+recursos AWS fora da cota podem gerar consumo de créditos. Consulte os limites
+atuais na [página oficial de preços](https://aws.amazon.com/dynamodb/pricing/).
+
+Crie uma identidade de aplicação sem acesso ao console e restrinja-a à tabela
+com [esta política](infra/autokeep-dynamodb-policy.json). Configure as seguintes
+variáveis secretas no projeto Vercel: `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_REGION=us-east-1`,
+`DYNAMODB_TABLE=autokeep-dev`, `APP_ORIGIN=https://<domínio do projeto>`,
+`SEED_DEMO=true` e `DEMO_PASSWORD` (senha aleatória com pelo menos 16 caracteres,
+diferente do Docker). O primeiro acesso cria três perfis de demonstração:
+`ana@autokeep.local`, `marina@autokeep.local` e `lucas@autokeep.local`, com um
+veículo atribuído ao motorista. Use `/api/health` para verificar a conexão.
+No checkout usado para publicar, consulte a senha com
+`npm run credentials -- --cloud`. O arquivo `.env.cloud.local` é local e
+ignorado pelo Git.
+
+Os convites publicados devolvem um link para copiar; não enviam e-mail. A
+avaliação periódica de notificações continua exclusiva do Docker local.
 
 ## AWS e Pulumi
 
-O ambiente atual é **local** e não provisiona recursos AWS. Custo zero
-recorrente na AWS com MySQL gerenciado não é garantido pelo Free Tier.
+O ambiente publicado usa uma tabela DynamoDB da cota gratuita. A estrutura
+Pulumi de duas stacks isoladas, `dev` e `prod`, permanece como próximo passo;
+nenhuma segunda tabela foi criada para não duplicar capacidade agora.
 
-Na fase de nuvem, um projeto Pulumi terá duas stacks isoladas, `dev` e `prod`,
-com funções Lambda, banco MySQL gerenciado, frontend estático e identidade
-externa. `npm run dev` continuará sendo o fluxo local. `pulumi up --stack dev`
-provisionará o ambiente de nuvem; uma stack de produção não executa Vite ou
-Docker Compose. DNS, CI/CD e infraestrutura ficam para essa etapa.
+O pacote da API para AWS Lambda pode ser gerado localmente com
+`npm run build:lambda`. O arquivo fica em `dist/autokeep-lambda.zip`, com
+handler `index.handler` para Node.js 24.x. A Lambda ainda não foi criada nem
+associada ao site: a publicação atual continua usando a função da Vercel.
 
 Consulte [as decisões e a cobertura dos requisitos](docs/implementation.md).
 

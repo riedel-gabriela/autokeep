@@ -13,6 +13,7 @@
     "down": "node scripts/dev.mjs down",
     "credentials": "node scripts/credentials.mjs",
     "build": "tsc --noEmit && vite build",
+    "build:lambda": "node scripts/build-lambda.mjs",
     "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml"
   },
   "dependencies": {

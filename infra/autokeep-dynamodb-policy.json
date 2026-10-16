@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AutoKeepTableOnly",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:Query"],
+      "Resource": "arn:aws:dynamodb:us-east-1:672791231338:table/autokeep-dev"
+    }
+  ]
+}

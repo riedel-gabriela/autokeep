@@ -54,7 +54,7 @@ export async function migrate() {
         (await rows(connection, 'SELECT name FROM schema_migrations WHERE name = ?', [file])).length
       )
         continue;
-      const sql = await readFile(new URL(`../../db/${file}`, import.meta.url), 'utf8');
+      const sql = await readFile(`db/${file}`, 'utf8');
       for (const statement of sql
         .split(';')
         .map((s) => s.trim())

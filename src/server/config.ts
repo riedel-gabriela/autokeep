@@ -4,7 +4,6 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   APP_ORIGIN: z.url().default('http://localhost:8080'),
-  AUTH_MODE: z.literal('local').default('local'),
   DB_HOST: z.string().min(1),
   DB_PORT: z.coerce.number().int().default(3306),
   DB_NAME: z.string().min(1),

@@ -6,6 +6,9 @@ Todas as mudanças relevantes deste projeto serão registradas aqui.
 
 ### Added
 
+- Prepare um pacote da API para implantação futura em AWS Lambda.
+- Prepare a API publicada para usar uma tabela DynamoDB da cota gratuita.
+- Disponibilize login, frota e veículos na API da Vercel.
 - Gerencie o próprio carro com leituras, previsões e trocas de óleo.
 - Acompanhe a frota, os motoristas e as próximas manutenções.
 - Convide motoristas e preserve o histórico ao mudar atribuições.
@@ -19,7 +22,10 @@ Todas as mudanças relevantes deste projeto serão registradas aqui.
 
 ### Fixed
 
+- Retorne à tela de login ao sair da conta no site publicado.
 - Defina o build e a saída do frontend para publicação na Vercel.
+- Explique quando o login não encontra a API no endereço publicado.
+- Mostre as instruções de acesso corretas no deploy publicado.
 
 ## [0.1.0] - 2026-10-15
 

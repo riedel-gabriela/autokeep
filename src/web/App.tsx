@@ -64,6 +64,7 @@ const actionLabels: Record<string, string> = {
   ORGANIZATION_CREATED: 'Espaço criado',
 };
 const priority = { DUE: 0, WARNING: 1, OK: 2 };
+const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null),
@@ -304,11 +305,13 @@ export function App() {
             <p>Um pouco de atenção hoje. Muito mais caminho amanhã.</p>
             <span className="note-line" />
           </div>
-          <a className="support-link" href="http://localhost:8025" target="_blank" rel="noreferrer">
-            <Mail size={17} />
-            Caixa de e-mails
-            <ArrowUpRight size={14} />
-          </a>
+          {local && (
+            <a className="support-link" href="http://localhost:8025" target="_blank" rel="noreferrer">
+              <Mail size={17} />
+              Caixa de e-mails
+              <ArrowUpRight size={14} />
+            </a>
+          )}
           <button className="profile" onClick={logout} title="Sair da conta">
             <span className="avatar">
               {session.user.name
@@ -833,14 +836,16 @@ export function App() {
                       Os alertas de manutenção e lembretes de leitura aparecem aqui.
                     </Empty>
                   )}
-                  <div className="panel-footnote">
-                    <Mail size={16} />
-                    Os e-mails deste ambiente ficam na{' '}
-                    <a href="http://localhost:8025" target="_blank" rel="noreferrer">
-                      caixa local
-                    </a>
-                    . Os avisos são avaliados automaticamente a cada 15 minutos.
-                  </div>
+                  {local && (
+                    <div className="panel-footnote">
+                      <Mail size={16} />
+                      Os e-mails deste ambiente ficam na{' '}
+                      <a href="http://localhost:8025" target="_blank" rel="noreferrer">
+                        caixa local
+                      </a>
+                      . Os avisos são avaliados automaticamente a cada 15 minutos.
+                    </div>
+                  )}
                 </section>
               )}
             </>

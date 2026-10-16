@@ -21,6 +21,7 @@ export function Login({
     [error, setError] = useState('');
   const [register, setRegister] = useState(Boolean(invitation)),
     [registered, setRegistered] = useState(false);
+  const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -173,7 +174,7 @@ export function Login({
           </form>
           {!register && (
             <div className="demo-accounts">
-              <span className="eyebrow">EXPLORE OS PERFIS LOCAIS</span>
+              <span className="eyebrow">EXPLORE OS PERFIS DE DEMONSTRAÇÃO</span>
               <div>
                 {[
                   ['ana@autokeep.local', 'Meu carro'],
@@ -190,12 +191,14 @@ export function Login({
                 ))}
               </div>
               <p>
-                A senha local está disponível no terminal com <code>npm run credentials</code>.
+                A senha está disponível no terminal com{' '}
+                <code>{local ? 'npm run credentials' : 'npm run credentials -- --cloud'}</code>.
               </p>
             </div>
           )}
           <div className="login-footnote">
-            <ShieldCheck size={14} /> Ambiente local de desenvolvimento
+            <ShieldCheck size={14} />{' '}
+            {local ? 'Ambiente local de desenvolvimento' : 'Ambiente de demonstração'}
           </div>
         </div>
       </section>

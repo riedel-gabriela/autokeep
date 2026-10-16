@@ -5,22 +5,19 @@
 - **MySQL 8.0 local:** relações entre organizações, pessoas, veículos,
   atribuições e históricos; transações para alterações consistentes; chaves
   estrangeiras e isolamento por organização em todas as consultas de negócio.
-  A decisão atual substitui o DynamoDB da arquitetura original nesta etapa.
-  A imagem local existente foi preservada; a versão de produção deverá ser
-  escolhida entre as versões suportadas do RDS na etapa de infraestrutura.
+  A imagem local existente foi preservada. A API publicada usa DynamoDB.
 - **TypeScript:** regras e contratos compartilháveis entre API, web e futuro
   cliente mobile. React oferece uma interface responsiva; React Native poderá
   reutilizar os contratos e regras, mas exigirá componentes de interface próprios.
-- **API Express:** `createApp()` separado do servidor. A migração para Lambda
-  ainda requer adaptador API Gateway, validação de identidade de produção e
-  configuração apropriada do pool/conexões MySQL.
+- **API Express:** `createApp()` atende o Docker e `createCloudApp()` atende a
+  Vercel, com o mesmo contrato HTTP e regras de apresentação de veículos.
 - **Desenvolvimento local:** Docker Compose com aplicação, banco e Mailpit.
   `npm run dev` e `npm run deve` sobem o ambiente em `localhost:8080`.
 - **Autenticação local:** usuário e senha com bcrypt, cookies HttpOnly,
   SameSite Strict, validade de 12 horas, tokens aleatórios e apenas hashes no
   banco; validação de origem e JSON nas escritas e limite de tentativas de login.
-  O modo local se recusa a iniciar em produção. A identidade de produção será
-  integrada posteriormente a Cognito/OIDC.
+  O modo local se recusa a iniciar em produção. O login publicado também usa
+  bcrypt e sessão opaca, persistida no DynamoDB.
 - **Identidade visual:** paleta verde, fundo claro, marca de cuidado automotivo,
   interface com navegação inferior em telas pequenas e manifest de instalação.
 
@@ -97,11 +94,10 @@ auditoria e notificações. O contrato original descreve Cognito; use
 
 1. Crie um projeto Pulumi com stacks `dev` e `prod`, recursos e credenciais
    isolados. Use o mesmo código da infraestrutura com configurações por stack.
-2. Hospede a SPA compilada em S3 privado e CloudFront, e a API em Lambda e API
-   Gateway. O servidor Vite não é um servidor de produção.
-3. Use RDS MySQL/Aurora compatível após estimar os custos. Defina estratégia de
-   conexões Lambda, limites de concorrência, TLS, migrações separadas, backups
-   e credenciais via Secrets Manager. RDS Proxy tem custo e deve ser avaliado.
+2. Mantenha o frontend e a API na Vercel Hobby enquanto o uso estiver dentro
+   da cota gratuita; o servidor Vite é só para desenvolvimento.
+3. Provisione uma tabela DynamoDB Standard por stack, considerando que a cota
+   de 25 RCU e 25 WCU é compartilhada por conta e região.
 4. Integre Cognito/OIDC, SES, EventBridge e entrega Web Push/FCM/APNs. Implante
    o avaliador como worker agendado, preservando a idempotência.
 5. Acrescente CI/CD, DNS e observabilidade; defina e meça a meta de latência.
@@ -117,16 +113,14 @@ o processo da aplicação continuam tendo responsabilidades diferentes.
 Não vincule o comando cotidiano de desenvolvimento ao provisionamento de
 produção.
 
-Segundo as regras atuais, o plano gratuito AWS para novas contas expira no
-primeiro dos eventos: seis meses ou esgotamento dos créditos. Benefícios e
-limites variam conforme a conta. Não há garantia de gratuidade contínua para
-um ambiente com MySQL gerenciado. Sem essa garantia, esta fase usa Docker
-local e não cria recursos cobrados.
+O plano gratuito da conta AWS tem prazo e créditos. A tabela provisionada com
+5 RCU e 5 WCU está dentro da cota Always Free do DynamoDB Standard; outras
+opções como backups contínuos, KMS próprio e replicação ficam desligadas.
 
 Fontes oficiais consultadas em 15/10/2026:
 
 - [AWS Free Tier](https://aws.amazon.com/free/free-tier-faqs/)
-- [Amazon RDS Free Tier](https://aws.amazon.com/rds/free/)
+- [Preços do DynamoDB](https://aws.amazon.com/dynamodb/pricing/)
 - [Stacks Pulumi](https://www.pulumi.com/docs/iac/concepts/stacks/)
 
 ## Segurança e limites da revisão

@@ -36,7 +36,6 @@ services:
       CHOKIDAR_INTERVAL: 1000
       PORT: 8080
       APP_ORIGIN: http://localhost:8080
-      AUTH_MODE: local
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: autokeep

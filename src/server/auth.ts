@@ -39,7 +39,7 @@ export function setCookie(res: Response, token: string) {
   res.cookie('autokeep_session', token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: config.APP_ORIGIN.startsWith('https://'),
+    secure: config.NODE_ENV === 'production' || config.APP_ORIGIN.startsWith('https://'),
     maxAge: 12 * 60 * 60_000,
     path: '/',
   });
@@ -85,8 +85,10 @@ export const authenticate: RequestHandler = async (req, res, next) => {
 export const protectWrites: RequestHandler = (req, _res, next) => {
   try {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      const origin = req.headers.origin;
+      const expectedOrigin = new URL(config.APP_ORIGIN).origin;
       check(
-        req.headers.origin === new URL(config.APP_ORIGIN).origin,
+        origin === expectedOrigin,
         403,
         'INVALID_ORIGIN',
         'Origem da solicitação não permitida.',

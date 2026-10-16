@@ -6,7 +6,7 @@ if (!existsSync('.env')) {
   const secret = () => randomBytes(24).toString('base64url');
   writeFileSync(
     '.env',
-    `DB_PASSWORD=${secret()}\nMYSQL_ROOT_PASSWORD=${secret()}\nDEMO_PASSWORD=${secret()}\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_NAME=autokeep\nDB_USER=autokeep\nPORT=8080\nAPP_ORIGIN=http://localhost:8080\nAUTH_MODE=local\nSEED_DEMO=true\n`,
+    `DB_PASSWORD=${secret()}\nMYSQL_ROOT_PASSWORD=${secret()}\nDEMO_PASSWORD=${secret()}\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_NAME=autokeep\nDB_USER=autokeep\nPORT=8080\nAPP_ORIGIN=http://localhost:8080\nSEED_DEMO=true\n`,
     { mode: 0o600, flag: 'wx' },
   );
   console.log('Configuração local criada. Use npm run credentials para ver os acessos.');
