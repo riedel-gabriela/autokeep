@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createCloudApp } from '../src/server/cloud-app.js';
+import { createApp } from '../src/server/app.js';
 
-const app = createCloudApp();
+const app = createApp();
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://localhost');

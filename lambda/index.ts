@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createCloudApp } from '../src/server/cloud-app.js';
+import { createApp } from '../src/server/app.js';
 
 type FunctionUrlEvent = {
   rawPath: string;
@@ -12,7 +12,7 @@ type FunctionUrlEvent = {
   requestContext: { http: { method: string } };
 };
 
-const app = createCloudApp();
+const app = createApp();
 let server: Promise<Server> | undefined;
 
 function startServer() {
@@ -39,7 +39,9 @@ export async function handler(event: FunctionUrlEvent) {
   const query = event.rawQueryString ? `?${event.rawQueryString}` : '';
   const headers = new Headers();
   for (const [key, value] of Object.entries(event.headers || {})) {
-    if (!['host', 'content-length', 'connection', 'transfer-encoding'].includes(key.toLowerCase())) {
+    if (
+      !['host', 'content-length', 'connection', 'transfer-encoding'].includes(key.toLowerCase())
+    ) {
       headers.set(key, value);
     }
   }

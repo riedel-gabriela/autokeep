@@ -1,69 +1,50 @@
-# Arquitetura do AutoKeep
-
-## Visão geral
-
-O AutoKeep usa uma arquitetura serverless para manter baixo o custo ocioso. O
-CloudFront entrega a SPA a partir de um bucket privado e encaminha `/api/*` ao
-API Gateway. O API Gateway valida o JWT do Cognito antes de invocar a Lambda.
+# Arquitetura atual do AutoKeep
 
 ```text
-Browser/PWA
-    |
-CloudFront -- S3 privado
-    |
-API Gateway -- Cognito
-    |
-Lambda API -- DynamoDB
-    |          |
-    |          +-- organizações, membros, veículos e auditoria
-    +-- SES / SNS
+Docker local: React/Vite + Express ── DynamoDB Local (volume persistente)
+                          └──────── Mailpit (captura local)
 
-EventBridge -- Lambda worker -- SES / SNS
+Nuvem: frontend Vercel ── entrada API Vercel / Lambda Function URL
+                          └── mesma API Express ── DynamoDB dev ou prod
 ```
 
-## Modelo single-table
+`src/server/app.ts` contém a única implementação HTTP; `api/index.ts` e
+`lambda/index.ts` apenas adaptam os transportes. O servidor de desenvolvimento
+adiciona Vite e inicializa exclusivamente a tabela DynamoDB Local.
 
-Cada organização ocupa uma partição `ORG#{organizationId}`. Veículos,
-membros, leituras, notificações idempotentes e auditorias são separados pelo
-sort key. A `GSI1` resolve as organizações de um usuário; a `GSI2` percorre os
-veículos para a avaliação diária.
+## Dados e autorização
 
-Convites usam uma partição `INVITE#{sha256(token)}` e TTL de sete dias. O token
-original aparece somente no e-mail e no fragmento da URL, que o navegador não
-envia ao servidor. A aceitação manda o token no corpo de uma requisição POST.
+Partições `ORG#id` agrupam perfil, membros, veículos e auditoria; `USER#id`
+agrupam perfil e associações; `CAR#id` agrupa leituras e trocas. Índices de email,
+sessões e convites são itens próprios. `NOTIFY#org#user` isola notificações por
+organização/destinatário. Não há GSI nem varredura global para alertas.
 
-## Autorização
+Login usa bcrypt e sessões opacas com validade de 12 horas. O banco guarda
+apenas hash dos tokens. As escritas exigem JSON e origem configurada. ADMIN
+gerencia; DRIVER só consulta veículos atribuídos e registra quilometragem.
+Convites têm validade de sete dias. TTL físico é auxiliar: validade é conferida
+pela API mesmo se a remoção assíncrona do DynamoDB ainda não ocorreu.
 
-- O API Gateway valida emissor, assinatura e audiência do token.
-- O handler obtém `sub` e `email` somente das claims validadas.
-- Toda operação consulta a associação do usuário à organização.
-- Operações administrativas exigem `ADMIN`.
-- Um `DRIVER` só lê veículos atribuídos e só atualiza seu odômetro.
-- Trocar o motorista não altera histórico, média ou âncoras de manutenção.
+A camada atual usa operações individuais DynamoDB. Fluxos que alteram vários
+itens não oferecem atomicidade entre itens; testes cobrem os fluxos sequenciais,
+não garantem consistência em disputas concorrentes. Endurecer concorrência é
+uma evolução separada, especialmente cadastro/aceitação de convite e leituras.
 
-## Duplo relógio
+## Manutenção e notificações
 
-O domínio calcula em paralelo a distância restante para o limite do óleo e os
-dias restantes para 365 dias. O primeiro limite atingido gera o alerta. Um
-pré-aviso temporal ocorre 30 dias antes e um pré-aviso de distância ocorre nos
-últimos 500 km.
+Regras compartilhadas calculam distância e 365 dias, prevalecendo o primeiro
+limite. A média das três últimas leituras projeta o odômetro sem alterar o real.
+Notificações são calculadas sob demanda ao listar avisos; idempotência usa chave
+por veículo/ciclo/nível e escrita condicional. Não existe agendador cloud ou
+avaliação em background. Marcação de leitura é persistida por destinatário.
 
-No modo manual, até três leituras formam uma média móvel de quilômetros por
-dia. O worker usa essa média para projetar o odômetro sem substituir a última
-leitura real.
+Email só usa Mailpit local. Não há SES, SNS, Web Push ou hardware OBD2 conectado.
+O SMTP local pode duplicar email se houver interrupção após envio e antes da
+confirmação no banco. Não é um transporte de produção.
 
-## Limite da integração OBD2
+## Estado AWS
 
-O PID padrão `01 31` informa a distância desde a limpeza dos códigos de falha,
-não o odômetro total. Muitos fabricantes expõem o odômetro apenas por PIDs
-proprietários. O cliente Bluetooth lê o PID padrão como auxílio, mostra essa
-distinção e exige confirmação do painel. Perfis específicos por fabricante
-podem ser adicionados à abstração sem alterar a API.
-
-## Push
-
-O worker publica eventos no tópico SNS e o service worker já processa eventos
-Web Push. A entrega remota ao navegador requer conectar um provedor push e
-persistir subscriptions; para apps nativos, requer credenciais FCM/APNs. Essa
-integração depende das credenciais do produto e permanece deliberadamente fora
-do código e do estado não secreto do repositório.
+Dev/prod possuem tabelas e Lambdas distintas. A auditoria confirmou Function URL,
+sem API Gateway, CloudFront ou Route 53. JWT Cognito, SES/SNS e worker EventBridge
+faziam parte de uma proposta antiga, não da infraestrutura implantada.
+Consulte `aws-review.md`; esta branch prepara código e não altera a AWS.

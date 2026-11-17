@@ -1,143 +1,126 @@
 # AutoKeep
 
-Cuide do seu carro e da sua frota. Aplicação responsiva em português, com React,
-TypeScript, API Node.js e MySQL 8.0 no Docker local.
+Aplicação em português para acompanhar veículos, frotas e trocas de óleo.
+React/TypeScript e uma única API Express usam DynamoDB em todos os ambientes:
+DynamoDB Local no Docker, tabelas existentes na AWS em dev/prod.
 
-## Rodar localmente
+## Desenvolvimento local
 
-Requisitos: Node.js 22.12 ou superior e Docker com Compose, em execução.
-Docker Desktop ou Colima com `docker-compose` também são aceitos.
+Requisitos: Node.js 22.12+ e Docker com Compose em execução.
 
 ```sh
 npm run dev
 ```
 
-Abra **http://localhost:8080**. O comando cria o `.env` com senhas aleatórias,
-constrói a imagem, inicia o MySQL, aplica as migrações e cria dados de exemplo
-somente quando o banco está vazio. O primeiro início pode levar alguns minutos.
-Não é necessário instalar as dependências no host para esse comando.
-
-`npm run deve` é um alias de `npm run dev`.
-
-Em outro terminal, consulte os acessos locais:
+Abra http://localhost:8080. O script cria `.env` com uma senha aleatória,
+compila o container, aguarda o DynamoDB Local, cria a tabela local e gera dados
+de demonstração no primeiro acesso. Não usa uma conta AWS nem créditos.
 
 ```sh
 npm run credentials
-```
-
-| Perfil          | E-mail                  | Permissões                                 |
-| --------------- | ----------------------- | ------------------------------------------ |
-| Garagem pessoal | `ana@autokeep.local`    | Gerencie os próprios veículos e trocas     |
-| Gestão de frota | `marina@autokeep.local` | Gerencie veículos, motoristas e manutenção |
-| Motorista       | `lucas@autokeep.local`  | Consulte veículos atribuídos e atualize km |
-
-A senha gerada é compartilhada pelos perfis de demonstração. O login usa
-hash bcrypt e sessão opaca com expiração, persistida no banco. Esse provedor
-local é bloqueado quando `NODE_ENV=production`.
-
-Os e-mails de convites e alertas são capturados pelo **Mailpit** em
-**http://localhost:8025**. Nenhuma mensagem é enviada para a internet.
-
-## Uso
-
-- **Meu carro:** consulte a próxima troca por tempo e quilometragem, registre
-  leituras e trocas de óleo, acompanhe a média diária e o histórico.
-- **Frota:** veja alertas e situação dos veículos, pesquise e filtre, convide
-  motoristas e atribua ou desatribua veículos preservando todo o histórico.
-- **Convites:** copie o link ou abra o e-mail no Mailpit. O destinatário pode
-  criar sua conta pelo convite ou entrar com uma conta existente. Válido por
-  sete dias; apenas o hash do token fica no banco.
-- **Notificações:** consulte avisos de manutenção e calibração no aplicativo.
-  O avaliador local é executado ao iniciar e a cada 15 minutos.
-- **Espaços:** crie garagens e frotas adicionais e alterne pelo menu lateral.
-
-## Parar e persistir
-
-Use `Ctrl+C` no terminal do desenvolvimento para parar os serviços ou:
-
-```sh
 npm run down
 ```
 
-Os dados ficam no volume `autokeep-local_mysql-data`. Parar/recriar os
-containers preserva os dados. Preserve também o `.env`: trocar a senha nele
-não altera automaticamente a senha de um banco que já foi inicializado.
-Não use `down -v` se quiser manter os dados.
+Perfis: `ana@autokeep.local` (garagem), `marina@autokeep.local` (gestora) e
+`lucas@autokeep.local` (motorista). Convites locais são capturados pelo Mailpit
+em http://localhost:8025. Apenas aplicação e Mailpit são publicados no loopback;
+o banco fica na rede interna Docker. `npm run deve` é alias de `npm run dev`.
 
-Somente a aplicação (`8080`) e a caixa de e-mails (`8025`) são publicadas no
-loopback. O MySQL fica acessível apenas pela rede interna do Compose.
-As pastas de código são montadas no container com atualização automática.
-Depois de alterar dependências, execute `npm run dev` novamente para reconstruir.
+Os dados ficam no volume `autokeep-local_dynamodb-data`. Parar/recriar os
+containers preserva o banco. Não use `down -v` se quiser manter os dados.
 
-## Compilar no host
+**Mudança de MySQL para DynamoDB:** não há migração automática dos dados antigos.
+O volume MySQL existente não é apagado por esta refatoração. Preserve-o e exporte
+seus dados antes de qualquer remoção; o novo ambiente começa com banco próprio.
+Não há mais dependência de senhas/variáveis MySQL no `.env`.
 
-Para usar editor, TypeScript e compilação no host:
+## Funcionalidades
+
+- Garagem pessoal e frota, organizações e seleção do espaço ativo.
+- Perfis ADMIN/DRIVER, atribuição de veículos e isolamento por organização.
+- Leituras reais, histórico, trocas de óleo, arquivamento e auditoria.
+- Convites de sete dias, com hash do token e cadastro/aceitação.
+- Duplo relógio de manutenção: 5.000/8.000/12.000 km conforme óleo ou 365 dias.
+- Pré-alertas a 500 km/30 dias, média das três últimas leituras e projeção.
+- Notificações persistidas e deduplicadas, com marcação de leitura.
+
+Notificações são avaliadas ao consultar a caixa de avisos de cada organização.
+Não há worker em background: sem abrir o app não são gerados novos avisos nem
+emails. Essa escolha elimina o worker MySQL duplicado e não adiciona um
+agendador pago. Emails são enviados somente ao Mailpit local, quando configurado;
+em nuvem, os convites oferecem link copiável. Push remoto, email real e leitura
+automática de hardware OBD2 continuam pendentes. O modo OBD2 aceita somente
+valor confirmado pelo usuário. O app exige conexão; não há operação offline.
+
+## Verificação e build
 
 ```sh
 npm ci
+npm test
+npm run test:integration
 npm run build
+npm run build:lambda
 ```
 
-O build gera a SPA em `dist/web`. A API local usa MySQL; a função da Vercel
-usa DynamoDB Standard na AWS.
+`npm test` valida regras de manutenção. A integração sobe um container DynamoDB
+Local descartável, em porta aleatória de loopback, testa a API real e encerra o
+container. Nunca usa AWS e não toca o banco de desenvolvimento. É necessário
+Docker; no primeiro uso a imagem pode precisar ser baixada.
+
+O build web fica em `dist/web`; o pacote Lambda em `dist/autokeep-lambda.zip`
+com `index.handler`, Node.js 24.x. Esses comandos não publicam nada.
+
+## Ambientes publicados
+
+A auditoria do console em 17/11/2026 confirmou na região `us-east-1`:
+
+| Ambiente | DynamoDB        | Lambda              |
+| -------- | --------------- | ------------------- |
+| dev      | `autokeep-dev`  | `autokeep-api-dev`  |
+| prod     | `autokeep-prod` | `autokeep-api-prod` |
+
+As tabelas usam `pk`/`sk` String, classe Standard, 5 RCU e 5 WCU cada e TTL `ttl`.
+Não há API Gateway/CloudFront/Route 53 configurados na conta auditada. A Lambda
+prod usa Function URL e o frontend está em https://autokeep-olive.vercel.app.
+O endpoint `/api/health` do site e da Lambda prod foi validado na auditoria.
+Esta branch não foi publicada; o comportamento novo só passa à nuvem após deploy.
+
+A mesma `createApp()` atende servidor local, função Vercel (`api/index.ts`) e
+Lambda (`lambda/index.ts`). A rota publicada e o redirecionamento da Vercel devem
+ser conferidos antes de decidir qual entrada de API manter no deploy; não foram
+alterados automaticamente. Não há duas implementações de regras de negócio.
+
+Variáveis cloud: `AWS_REGION`, `DYNAMODB_TABLE`, `APP_ORIGIN`, `SEED_DEMO` e,
+se o seed estiver ligado, `DEMO_PASSWORD` com pelo menos 16 caracteres. Lambda
+usa suas credenciais temporárias de execution role; Vercel precisa de credenciais
+restritas à tabela. Não copie credenciais cloud para o Docker local. A configuração
+existente mantém as tabelas e roles separadas; dev tem seed desativado.
+
+## Infraestrutura e custos
+
+[pulumi-start-aws](pulumi-start-aws/README.md) agora referencia os recursos
+existentes em duas stacks, sem criar/recriar tabelas, Lambdas ou DNS.
+Veja [a auditoria AWS](docs/aws-review.md) para o estado real, créditos e limites.
+Não execute provisionamento/deploy nem introduza consumo pago, mesmo coberto
+por créditos, sem primeiro informar recurso/valor e obter autorização explícita.
+
+A política em `infra/autokeep-dynamodb-policy.json` é um exemplo exclusivo de dev;
+não deve ser aplicada à role de prod. Não habilite RDS, NAT Gateway, PITR, KMS
+próprio, auto scaling ou outros serviços apenas para cumprir um diagrama.
+Registro de domínio pode não aceitar créditos promocionais.
 
 ## Estrutura
 
 ```text
-src/web/        interface React responsiva
-src/shared/     tipos e regras de manutenção independentes da interface
-src/server/     API, autorização, MySQL, e-mails e avaliador de alertas
-db/             migrações SQL versionadas
-scripts/        inicialização Docker e consulta dos acessos locais
-public/         identidade visual e manifest de instalação
-docs/           requisitos originais e decisões de implementação
+src/web/          interface React
+src/shared/       contratos e regras de manutenção
+src/server/       API única, persistência DynamoDB e SMTP local opcional
+api/              adaptador Vercel
+lambda/           adaptador AWS Lambda
+pulumi-start-aws/  referências à infraestrutura existente
+scripts/          desenvolvimento, build, credenciais e testes locais
+tests/            testes de regras e integração com DynamoDB Local
+docs/             especificação original, decisões e auditorias
 ```
 
-## Frontend na Vercel
-
-O arquivo `vercel.json` define o preset Vite, a instalação das dependências de
-build, o comando `npm run build` e a saída `dist/web`.
-
-Nas configurações do projeto Vercel, use a raiz do repositório (`.`) como
-**Root Directory**. Remova referências à estrutura antiga `apps/web`.
-Essa configuração de raiz é feita no painel da Vercel; `vercel.json` não a altera.
-
-O deploy publica a interface Vite e a API em uma Vercel Function. Ela acessa
-uma única tabela DynamoDB, `autokeep-dev`, na região `us-east-1`. A tabela usa
-`pk` e `sk` como chaves String, classe Standard, modo provisionado com 5 RCU e
-5 WCU fixos, sem índices, backups contínuos, replicação ou KMS próprio.
-Esses valores cabem na cota gratuita de 25 RCU, 25 WCU e 25 GB por conta;
-tráfego acima da capacidade é limitado pelo DynamoDB. Armazenamento e outros
-recursos AWS fora da cota podem gerar consumo de créditos. Consulte os limites
-atuais na [página oficial de preços](https://aws.amazon.com/dynamodb/pricing/).
-
-Crie uma identidade de aplicação sem acesso ao console e restrinja-a à tabela
-com [esta política](infra/autokeep-dynamodb-policy.json). Configure as seguintes
-variáveis secretas no projeto Vercel: `AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY`, `AWS_REGION=us-east-1`,
-`DYNAMODB_TABLE=autokeep-dev`, `APP_ORIGIN=https://<domínio do projeto>`,
-`SEED_DEMO=true` e `DEMO_PASSWORD` (senha aleatória com pelo menos 16 caracteres,
-diferente do Docker). O primeiro acesso cria três perfis de demonstração:
-`ana@autokeep.local`, `marina@autokeep.local` e `lucas@autokeep.local`, com um
-veículo atribuído ao motorista. Use `/api/health` para verificar a conexão.
-No checkout usado para publicar, consulte a senha com
-`npm run credentials -- --cloud`. O arquivo `.env.cloud.local` é local e
-ignorado pelo Git.
-
-Os convites publicados devolvem um link para copiar; não enviam e-mail. A
-avaliação periódica de notificações continua exclusiva do Docker local.
-
-## AWS e Pulumi
-
-O ambiente publicado usa uma tabela DynamoDB da cota gratuita. A estrutura
-Pulumi de duas stacks isoladas, `dev` e `prod`, permanece como próximo passo;
-nenhuma segunda tabela foi criada para não duplicar capacidade agora.
-
-O pacote da API para AWS Lambda pode ser gerado localmente com
-`npm run build:lambda`. O arquivo fica em `dist/autokeep-lambda.zip`, com
-handler `index.handler` para Node.js 24.x. A Lambda ainda não foi criada nem
-associada ao site: a publicação atual continua usando a função da Vercel.
-
-Consulte [as decisões e a cobertura dos requisitos](docs/implementation.md).
-
-Sem commits ou pushes automáticos.
+Nenhum commit desta branch é publicado automaticamente.

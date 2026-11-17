@@ -14,7 +14,9 @@
     "credentials": "node scripts/credentials.mjs",
     "build": "tsc --noEmit && vite build",
     "build:lambda": "node scripts/build-lambda.mjs",
-    "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml"
+    "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:integration": "node scripts/test-integration.mjs"
   },
   "dependencies": {
     "@fontsource/nunito-sans": "5.3.0",
@@ -23,11 +25,10 @@
     "express": "5.2.1",
     "express-rate-limit": "8.7.0",
     "lucide-react": "1.49.0",
-    "mysql2": "3.24.5",
-    "nodemailer": "10.0.12",
+    "nodemailer": "10.6.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/express": "5.0.3",
@@ -39,6 +40,6 @@
     "prettier": "3.9.9",
     "tsx": "4.20.5",
     "typescript": "5.9.2",
-    "vite": "8.3.2"
+    "vite": "8.3.8"
   }
 }

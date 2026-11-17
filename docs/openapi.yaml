@@ -1,3 +1,5 @@
+# Referência histórica da arquitetura Cognito originalmente proposta.
+# Contrato implementado: openapi.local.yaml.
 openapi: 3.1.0
 info:
   title: AutoKeep API

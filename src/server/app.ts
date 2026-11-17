@@ -1,30 +1,183 @@
-import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { hash } from 'bcryptjs';
+import express, { type RequestHandler, type ErrorRequestHandler } from 'express';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { compare, hash } from 'bcryptjs';
+import { parseCookie } from 'cookie';
+import { rateLimit } from 'express-rate-limit';
 import { z, ZodError } from 'zod';
-import { pool, rows, transaction } from './db.js';
+import { enrichVehicle, type Membership, type Vehicle } from '../shared/domain.js';
 import { AppError, check } from './errors.js';
-import {
-  authenticate,
-  digest,
-  login,
-  loginLimiter,
-  loginSchema,
-  passwordSchema,
-  protectWrites,
-  setCookie,
-} from './auth.js';
-import {
-  audit,
-  membership,
-  memberships,
-  presentVehicle,
-  vehicle,
-  visibleVehicles,
-} from './repository.js';
+import { get, put, query, remove, isConditionalFailure } from './dynamo.js';
+import { sendLocalMail } from './mail.js';
 import { createVehicleSchema, oilChangeSchema, readingSchema, uuid } from './validation.js';
-import { sendInvitation } from './mail.js';
 
+const origin = process.env.APP_ORIGIN || 'http://localhost:8080';
+const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+const now = () => new Date().toISOString();
+const userKey = (id: string) => `USER#${id}`;
+const orgKey = (id: string) => `ORG#${id}`;
+const carKey = (id: string) => `CAR#${id}`;
+const userPublic = (user: Record<string, any>) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+});
+const password = z.string().min(1).max(72);
+const email = z
+  .email()
+  .max(254)
+  .transform((v) => v.toLowerCase());
+const loginInput = z.object({ email, password }).strict();
+const invitationInput = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+
+async function userByEmail(address: string) {
+  const pointer = await get(`EMAIL#${address}`, 'USER');
+  return pointer ? get(userKey(pointer.userId), 'PROFILE') : undefined;
+}
+
+async function userMemberships(id: string): Promise<Membership[]> {
+  const links = await query(userKey(id), 'ORG#');
+  return Promise.all(
+    links.map(async (link) => {
+      const org = await get(orgKey(link.organizationId), 'PROFILE');
+      return {
+        organizationId: link.organizationId,
+        companyName: org?.name || '',
+        kind: org?.kind,
+        role: link.role,
+      } as Membership;
+    }),
+  );
+}
+
+async function member(orgId: string, userId: string) {
+  const link = await get(orgKey(orgId), `MEMBER#${userId}`);
+  check(link, 403, 'FORBIDDEN', 'Você não tem acesso a este espaço.');
+  const org = await get(orgKey(orgId), 'PROFILE');
+  return { role: link.role as 'ADMIN' | 'DRIVER', kind: org?.kind as string };
+}
+
+async function findCar(orgId: string, id: string, userId: string, role?: string) {
+  const car = await get(orgKey(orgId), `CAR#${id}`);
+  check(
+    car && !car.archivedAt && (role === 'ADMIN' || car.assignedDriverId === userId),
+    404,
+    'VEHICLE_NOT_FOUND',
+    'Veículo não encontrado.',
+  );
+  return car;
+}
+
+async function readings(id: string, limit?: number) {
+  return query(carKey(id), 'READING#', limit);
+}
+
+async function presentCar(car: Record<string, any>): Promise<Vehicle> {
+  const history = await readings(car.id, 3);
+  const driver = car.assignedDriverId
+    ? await get(userKey(car.assignedDriverId), 'PROFILE')
+    : undefined;
+  return enrichVehicle({
+    id: car.id,
+    organizationId: car.organizationId,
+    name: car.name,
+    plate: car.plate,
+    year: car.year,
+    oilType: car.oilType,
+    trackingMode: car.trackingMode,
+    currentOdometer: car.currentOdometer,
+    lastUpdateDate: car.lastUpdateDate,
+    lastOilChangeKm: car.lastOilChangeKm,
+    lastOilChangeDate: car.lastOilChangeDate,
+    assignedDriverId: car.assignedDriverId,
+    assignedDriverName: driver?.name || null,
+    historicalEntries: history.slice(0, 3).map((r) => ({
+      id: r.id,
+      odometer: r.odometer,
+      measuredAt: r.measuredAt,
+      source: r.source,
+    })),
+  });
+}
+
+async function audit(orgId: string, userId: string, action: string, vehicleId?: string) {
+  const time = now();
+  await put(orgKey(orgId), `AUDIT#${time}#${randomUUID()}`, {
+    id: randomUUID(),
+    action,
+    actorId: userId,
+    vehicleId: vehicleId || null,
+    createdAt: time,
+  });
+}
+
+async function seedDemo() {
+  if (process.env.SEED_DEMO !== 'true') return;
+  const seed = await get('META', 'SEED');
+  if (seed?.done) return;
+  const demoPassword = process.env.DEMO_PASSWORD;
+  check(
+    demoPassword && demoPassword.length >= 16,
+    503,
+    'DEMO_PASSWORD_REQUIRED',
+    'Configure a senha de demonstração.',
+  );
+  const passwordHash = await hash(demoPassword, 12);
+  const users = [
+    { id: 'a0000000-0000-4000-8000-000000000001', name: 'Ana Souza', email: 'ana@autokeep.local' },
+    {
+      id: 'a0000000-0000-4000-8000-000000000002',
+      name: 'Marina Costa',
+      email: 'marina@autokeep.local',
+    },
+    {
+      id: 'a0000000-0000-4000-8000-000000000003',
+      name: 'Lucas Almeida',
+      email: 'lucas@autokeep.local',
+    },
+  ];
+  for (const user of users) {
+    await put(userKey(user.id), 'PROFILE', { ...user, passwordHash });
+    await put(`EMAIL#${user.email}`, 'USER', { userId: user.id });
+  }
+  const personal = 'b0000000-0000-4000-8000-000000000001';
+  const fleet = 'b0000000-0000-4000-8000-000000000002';
+  await put(orgKey(personal), 'PROFILE', { id: personal, name: 'Minha garagem', kind: 'PERSONAL' });
+  await put(orgKey(fleet), 'PROFILE', { id: fleet, name: 'Horizonte Logística', kind: 'FLEET' });
+  for (const [orgId, userId, role] of [
+    [personal, users[0].id, 'ADMIN'],
+    [fleet, users[1].id, 'ADMIN'],
+    [fleet, users[2].id, 'DRIVER'],
+  ]) {
+    await put(orgKey(orgId), `MEMBER#${userId}`, { userId, role });
+    await put(userKey(userId), `ORG#${orgId}`, { organizationId: orgId, role });
+  }
+  const carId = 'c0000000-0000-4000-8000-000000000001';
+  const lastDate = new Date(Date.now() - 75 * 86_400_000).toISOString();
+  await put(orgKey(fleet), `CAR#${carId}`, {
+    id: carId,
+    organizationId: fleet,
+    name: 'Fiat Strada',
+    plate: 'GHT4J82',
+    year: 2024,
+    oilType: 'SEMI_SYNTHETIC',
+    trackingMode: 'MANUAL',
+    currentOdometer: 48360,
+    lastUpdateDate: now(),
+    lastOilChangeKm: 45000,
+    lastOilChangeDate: lastDate,
+    assignedDriverId: users[2].id,
+  });
+  await put(carKey(carId), `READING#${now()}#${randomUUID()}`, {
+    id: randomUUID(),
+    odometer: 48360,
+    measuredAt: now(),
+    source: 'MANUAL',
+    actorId: users[2].id,
+  });
+  await put('META', 'SEED', { done: true });
+}
+
+let initialized: Promise<void> | undefined;
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
@@ -33,76 +186,138 @@ export function createApp() {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  api.use(protectWrites, express.json({ limit: '16kb' }));
+  api.use(express.json({ limit: '16kb' }));
+  api.use(async (req, _res, next) => {
+    try {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        check(
+          req.headers.origin === new URL(origin).origin,
+          403,
+          'INVALID_ORIGIN',
+          'Origem da solicitação não permitida.',
+        );
+        check(req.is('application/json'), 415, 'JSON_REQUIRED', 'Envie os dados no formato JSON.');
+      }
+      initialized ??= seedDemo().catch((error) => {
+        initialized = undefined;
+        throw error;
+      });
+      await initialized;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
   api.get('/health', async (_req, res) => {
-    await pool.execute('SELECT 1');
+    await get('META', 'SEED');
     res.json({ status: 'ok' });
   });
-  api.post('/auth/login', loginLimiter, async (req, res) => {
-    const input = loginSchema.parse(req.body);
-    const result = await login(input.email, input.password);
-    setCookie(res, result.token);
-    res.json({
-      user: { id: result.user.id, name: result.user.name, email: result.user.email },
-      memberships: await memberships(result.user.id),
-    });
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    limit: 15,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
   });
-  // O cadastro local só pode acontecer com um convite válido e vinculado ao e-mail.
-  api.post('/auth/register-invited', loginLimiter, async (req, res) => {
-    const input = z
-      .object({
-        token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-        name: z.string().trim().min(2).max(100),
-        password: passwordSchema.refine((v) => v.length >= 12),
-      })
-      .strict()
-      .parse(req.body);
-    const passwordHash = await hash(input.password, 12);
-    await transaction(async (db) => {
-      const [invite] = await rows<{ id: string; email: string; organization_id: string }>(
-        db,
-        'SELECT id,email,organization_id FROM invitations WHERE token_hash=? AND accepted_at IS NULL AND expires_at > UTC_TIMESTAMP(3) FOR UPDATE',
-        [digest(input.token)],
-      );
-      check(invite, 404, 'INVITATION_INVALID', 'Convite inválido ou expirado.');
-      check(
-        !(await rows(db, 'SELECT id FROM users WHERE email=?', [invite.email])).length,
-        409,
-        'ACCOUNT_EXISTS',
-        'Este e-mail já tem conta. Entre para aceitar o convite.',
-      );
-      const userId = randomUUID();
-      await db.execute('INSERT INTO users (id,name,email,password_hash) VALUES (?,?,?,?)', [
-        userId,
-        input.name,
-        invite.email,
-        passwordHash,
-      ]);
-      await db.execute(
-        "INSERT INTO memberships (organization_id,user_id,role) VALUES (?,?,'DRIVER')",
-        [invite.organization_id, userId],
-      );
-      await db.execute('UPDATE invitations SET accepted_at=UTC_TIMESTAMP(3) WHERE id=?', [
-        invite.id,
-      ]);
-      await audit(db, invite.organization_id, userId, 'INVITATION_ACCEPTED');
+  api.post('/auth/login', loginLimiter, async (req, res) => {
+    const input = loginInput.parse(req.body);
+    const user = await userByEmail(input.email);
+    const valid = await compare(
+      input.password,
+      user?.passwordHash || '$2b$12$ylKop6NrdzvBR57FKgpFAus24xX1XJWbn90TliAu3Ln84h35jNAwu',
+    );
+    check(user && valid, 401, 'INVALID_CREDENTIALS', 'E-mail ou senha inválidos.');
+    const token = randomBytes(32).toString('base64url');
+    await put(`SESSION#${digest(token)}`, 'SESSION', {
+      userId: user.id,
+      expiresAt: Date.now() + 12 * 60 * 60_000,
+      ttl: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
     });
+    res.cookie('autokeep_session', token, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: origin.startsWith('https://'),
+      maxAge: 12 * 60 * 60_000,
+      path: '/',
+    });
+    const memberships = await userMemberships(user.id);
+    for (const membership of memberships) await audit(membership.organizationId, user.id, 'LOGIN');
+    res.json({ user: userPublic(user), memberships });
+  });
+  api.post('/auth/register-invited', loginLimiter, async (req, res) => {
+    const input = invitationInput
+      .extend({ name: z.string().trim().min(2).max(100), password: password.min(12) })
+      .parse(req.body);
+    const invite = await get(`INVITE#${digest(input.token)}`, 'INVITE');
+    check(
+      invite && !invite.acceptedAt && invite.expiresAt > Date.now(),
+      404,
+      'INVITATION_INVALID',
+      'Convite inválido ou expirado.',
+    );
+    check(
+      !(await userByEmail(invite.email)),
+      409,
+      'ACCOUNT_EXISTS',
+      'Este e-mail já tem conta. Entre para aceitar o convite.',
+    );
+    const id = randomUUID();
+    await put(
+      userKey(id),
+      'PROFILE',
+      { id, name: input.name, email: invite.email, passwordHash: await hash(input.password, 12) },
+      true,
+    );
+    await put(`EMAIL#${invite.email}`, 'USER', { userId: id }, true);
+    await put(orgKey(invite.organizationId), `MEMBER#${id}`, { userId: id, role: 'DRIVER' });
+    await put(userKey(id), `ORG#${invite.organizationId}`, {
+      organizationId: invite.organizationId,
+      role: 'DRIVER',
+    });
+    await put(`INVITE#${digest(input.token)}`, 'INVITE', { ...invite, acceptedAt: now() });
     res.status(201).json({ ok: true });
   });
-  api.use(authenticate);
+  api.use(async (req, res, next) => {
+    try {
+      const token = parseCookie(req.headers.cookie || '').autokeep_session;
+      check(
+        token && /^[A-Za-z0-9_-]{43}$/.test(token),
+        401,
+        'UNAUTHENTICATED',
+        'Entre na sua conta para continuar.',
+      );
+      const sessionHash = digest(token);
+      const session = await get(`SESSION#${sessionHash}`, 'SESSION');
+      check(
+        session && session.expiresAt > Date.now(),
+        401,
+        'SESSION_EXPIRED',
+        'Sua sessão expirou. Entre novamente.',
+      );
+      const user = await get(userKey(session.userId), 'PROFILE');
+      check(user, 401, 'SESSION_EXPIRED', 'Sua sessão expirou. Entre novamente.');
+      res.locals.user = user;
+      res.locals.sessionHash = sessionHash;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
   api.get('/session', async (_req, res) =>
-    res.json({ user: res.locals.user, memberships: await memberships(res.locals.user.id) }),
+    res.json({
+      user: userPublic(res.locals.user),
+      memberships: await userMemberships(res.locals.user.id),
+    }),
   );
   api.post('/auth/logout', async (_req, res) => {
-    await transaction(async (db) => {
-      await db.execute('DELETE FROM sessions WHERE token_hash=?', [res.locals.sessionHash]);
-      await audit(db, null, res.locals.user.id, 'LOGOUT');
-    });
+    for (const membership of await userMemberships(res.locals.user.id)) {
+      await audit(membership.organizationId, res.locals.user.id, 'LOGOUT');
+    }
+    await remove(`SESSION#${res.locals.sessionHash}`, 'SESSION');
     res.clearCookie('autokeep_session', { path: '/', httpOnly: true, sameSite: 'strict' });
     res.status(204).end();
   });
   api.get('/me/organizations', async (_req, res) =>
-    res.json({ organizations: await memberships(res.locals.user.id) }),
+    res.json({ organizations: await userMemberships(res.locals.user.id) }),
   );
   api.post('/organizations', async (req, res) => {
     const input = z
@@ -112,54 +327,41 @@ export function createApp() {
       })
       .strict()
       .parse(req.body);
-    const id = randomUUID();
-    await transaction(async (db) => {
-      await db.execute('INSERT INTO organizations (id,name,kind) VALUES (?,?,?)', [
-        id,
-        input.companyName,
-        input.kind,
-      ]);
-      await db.execute(
-        "INSERT INTO memberships (organization_id,user_id,role) VALUES (?,?,'ADMIN')",
-        [id, res.locals.user.id],
-      );
-      await audit(db, id, res.locals.user.id, 'ORGANIZATION_CREATED');
-    });
+    const id = randomUUID(),
+      userId = res.locals.user.id;
+    await put(orgKey(id), 'PROFILE', { id, name: input.companyName, kind: input.kind }, true);
+    await put(orgKey(id), `MEMBER#${userId}`, { userId, role: 'ADMIN' });
+    await put(userKey(userId), `ORG#${id}`, { organizationId: id, role: 'ADMIN' });
+    await audit(id, userId, 'ORGANIZATION_CREATED');
     res.status(201).json({ id });
   });
   api.post('/invitations/accept', async (req, res) => {
-    const input = z
-      .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
-      .strict()
-      .parse(req.body);
-    await transaction(async (db) => {
-      const [invite] = await rows<{ id: string; email: string; organization_id: string }>(
-        db,
-        'SELECT id,email,organization_id FROM invitations WHERE token_hash=? AND accepted_at IS NULL AND expires_at > UTC_TIMESTAMP(3) FOR UPDATE',
-        [digest(input.token)],
-      );
-      check(
-        invite && invite.email === res.locals.user.email,
-        403,
-        'INVITATION_INVALID',
-        'O convite deve corresponder ao e-mail da sua conta e estar válido.',
-      );
-      await db.execute(
-        "INSERT IGNORE INTO memberships (organization_id,user_id,role) VALUES (?,?,'DRIVER')",
-        [invite.organization_id, res.locals.user.id],
-      );
-      await db.execute('UPDATE invitations SET accepted_at=UTC_TIMESTAMP(3) WHERE id=?', [
-        invite.id,
-      ]);
-      await audit(db, invite.organization_id, res.locals.user.id, 'INVITATION_ACCEPTED');
+    const input = invitationInput.parse(req.body);
+    const invite = await get(`INVITE#${digest(input.token)}`, 'INVITE');
+    check(
+      invite &&
+        !invite.acceptedAt &&
+        invite.expiresAt > Date.now() &&
+        invite.email === res.locals.user.email,
+      403,
+      'INVITATION_INVALID',
+      'O convite deve corresponder ao e-mail da sua conta e estar válido.',
+    );
+    await put(orgKey(invite.organizationId), `MEMBER#${res.locals.user.id}`, {
+      userId: res.locals.user.id,
+      role: 'DRIVER',
     });
+    await put(userKey(res.locals.user.id), `ORG#${invite.organizationId}`, {
+      organizationId: invite.organizationId,
+      role: 'DRIVER',
+    });
+    await put(`INVITE#${digest(input.token)}`, 'INVITE', { ...invite, acceptedAt: now() });
     res.json({ ok: true });
   });
   api.param('organizationId', async (_req, res, next, raw) => {
     try {
-      const organizationId = uuid.parse(raw);
-      res.locals.organizationId = organizationId;
-      res.locals.membership = await membership(pool, organizationId, res.locals.user.id);
+      res.locals.organizationId = uuid.parse(raw);
+      res.locals.membership = await member(raw, res.locals.user.id);
       next();
     } catch (error) {
       next(error);
@@ -168,11 +370,11 @@ export function createApp() {
   api.param('vehicleId', async (_req, res, next, raw) => {
     try {
       res.locals.vehicleId = uuid.parse(raw);
-      res.locals.vehicle = await vehicle(
-        pool,
+      res.locals.vehicle = await findCar(
         res.locals.organizationId,
-        res.locals.vehicleId,
+        raw,
         res.locals.user.id,
+        res.locals.membership.role,
       );
       next();
     } catch (error) {
@@ -194,234 +396,233 @@ export function createApp() {
   };
   const org = '/organizations/:organizationId';
   const car = `${org}/vehicles/:vehicleId`;
-  api.get(`${org}/dashboard`, async (_req, res) =>
-    res.json({ vehicles: await visibleVehicles(res.locals.organizationId, res.locals.user.id) }),
-  );
+  api.get(`${org}/dashboard`, async (_req, res) => {
+    const all = await query(orgKey(res.locals.organizationId), 'CAR#');
+    const visible = all.filter(
+      (v) =>
+        !v.archivedAt &&
+        (res.locals.membership.role === 'ADMIN' || v.assignedDriverId === res.locals.user.id),
+    );
+    res.json({ vehicles: await Promise.all(visible.map(presentCar)) });
+  });
   api.post(`${org}/vehicles`, async (req, res) => {
     const input = createVehicleSchema.parse(req.body);
     const id = randomUUID(),
-      now = new Date(),
-      userId = res.locals.user.id,
-      orgId = res.locals.organizationId;
-    await transaction(async (db) => {
-      await db.execute(
-        'INSERT INTO vehicles (id,organization_id,name,plate,year,oil_type,tracking_mode,current_odometer,last_update_date,last_oil_change_km,last_oil_change_date,assigned_driver_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        [
-          id,
-          orgId,
-          input.name,
-          input.plate,
-          input.year,
-          input.oilType,
-          input.trackingMode,
-          input.currentOdometer,
-          now,
-          input.lastOilChangeKm,
-          new Date(input.lastOilChangeDate),
-          res.locals.membership.role === 'DRIVER' ? userId : null,
-        ],
-      );
-      await db.execute(
-        'INSERT INTO readings (id,vehicle_id,odometer,measured_at,source,actor_id) VALUES (?,?,?,?,?,?)',
-        [randomUUID(), id, input.currentOdometer, now, 'MANUAL', userId],
-      );
-      await db.execute(
-        'INSERT INTO oil_changes (id,vehicle_id,odometer,changed_at,oil_type,actor_id) VALUES (?,?,?,?,?,?)',
-        [
-          randomUUID(),
-          id,
-          input.lastOilChangeKm,
-          new Date(input.lastOilChangeDate),
-          input.oilType,
-          userId,
-        ],
-      );
-      await audit(db, orgId, userId, 'VEHICLE_CREATED', id);
+      time = now(),
+      orgId = res.locals.organizationId,
+      userId = res.locals.user.id;
+    await put(
+      orgKey(orgId),
+      `CAR#${id}`,
+      {
+        id,
+        organizationId: orgId,
+        name: input.name,
+        plate: input.plate,
+        year: input.year,
+        oilType: input.oilType,
+        trackingMode: input.trackingMode,
+        currentOdometer: input.currentOdometer,
+        lastUpdateDate: time,
+        lastOilChangeKm: input.lastOilChangeKm,
+        lastOilChangeDate: input.lastOilChangeDate,
+        assignedDriverId: res.locals.membership.role === 'DRIVER' ? userId : null,
+      },
+      true,
+    );
+    await put(carKey(id), `READING#${time}#${randomUUID()}`, {
+      id: randomUUID(),
+      odometer: input.currentOdometer,
+      measuredAt: time,
+      source: 'MANUAL',
+      actorId: userId,
     });
+    await put(carKey(id), `OIL#${input.lastOilChangeDate}#${randomUUID()}`, {
+      id: randomUUID(),
+      odometer: input.lastOilChangeKm,
+      changedAt: input.lastOilChangeDate,
+      oilType: input.oilType,
+      actorId: userId,
+    });
+    await audit(orgId, userId, 'VEHICLE_CREATED', id);
     res.status(201).json({ id });
   });
-  api.get(car, async (_req, res) =>
-    res.json({ vehicle: await presentVehicle(pool, res.locals.vehicle) }),
-  );
+  api.get(car, async (_req, res) => res.json({ vehicle: await presentCar(res.locals.vehicle) }));
   api.post(`${car}/odometer`, async (req, res) => {
     const input = readingSchema.parse(req.body),
-      userId = res.locals.user.id,
-      orgId = res.locals.organizationId,
-      id = res.locals.vehicleId;
-    await transaction(async (db) => {
-      const v = await vehicle(db, orgId, id, userId, true);
-      check(
-        input.odometer >= v.current_odometer,
-        400,
-        'ODOMETER_DECREASE',
-        'A quilometragem deve ser igual ou maior que a última leitura real.',
-      );
-      check(
-        Date.parse(input.measuredAt) > v.last_update_date.getTime(),
-        400,
-        'READING_OUT_OF_ORDER',
-        'Use uma data posterior à última leitura.',
-      );
-      await db.execute(
-        'INSERT INTO readings (id,vehicle_id,odometer,measured_at,source,actor_id) VALUES (?,?,?,?,?,?)',
-        [randomUUID(), id, input.odometer, new Date(input.measuredAt), input.source, userId],
-      );
-      await db.execute(
-        'UPDATE vehicles SET current_odometer=?,last_update_date=? WHERE id=? AND organization_id=?',
-        [input.odometer, new Date(input.measuredAt), id, orgId],
-      );
-      await audit(db, orgId, userId, 'ODOMETER_UPDATED', id);
+      v = res.locals.vehicle,
+      time = input.measuredAt;
+    check(
+      input.odometer >= v.currentOdometer,
+      400,
+      'ODOMETER_DECREASE',
+      'A quilometragem deve ser igual ou maior que a última leitura real.',
+    );
+    check(
+      Date.parse(time) > Date.parse(v.lastUpdateDate),
+      400,
+      'READING_OUT_OF_ORDER',
+      'Use uma data posterior à última leitura.',
+    );
+    await put(carKey(v.id), `READING#${time}#${randomUUID()}`, {
+      id: randomUUID(),
+      odometer: input.odometer,
+      measuredAt: time,
+      source: input.source,
+      actorId: res.locals.user.id,
     });
+    await put(orgKey(v.organizationId), `CAR#${v.id}`, {
+      ...v,
+      currentOdometer: input.odometer,
+      lastUpdateDate: time,
+    });
+    await audit(v.organizationId, res.locals.user.id, 'ODOMETER_UPDATED', v.id);
     res.status(201).json({ ok: true });
   });
   api.post(`${car}/oil-changes`, admin, async (req, res) => {
     const input = oilChangeSchema.parse(req.body),
-      userId = res.locals.user.id,
-      orgId = res.locals.organizationId,
-      id = res.locals.vehicleId;
-    await transaction(async (db) => {
-      const v = await vehicle(db, orgId, id, userId, true);
-      const changedAt = new Date(input.changedAt);
-      check(
-        changedAt > v.last_oil_change_date && input.odometer >= v.last_oil_change_km,
-        400,
-        'OIL_CHANGE_OUT_OF_ORDER',
-        'A troca deve ser posterior à última manutenção, sem reduzir a quilometragem.',
-      );
-      // Para datas anteriores à última leitura, respeite também as leituras dos dois lados.
-      const [bounds] = await rows<{ lowerKm: number | null; upperKm: number | null }>(
-        db,
-        'SELECT MAX(CASE WHEN measured_at <= ? THEN odometer END) AS lowerKm, MIN(CASE WHEN measured_at >= ? THEN odometer END) AS upperKm FROM readings WHERE vehicle_id=?',
-        [changedAt, changedAt, id],
-      );
-      check(
-        (bounds.lowerKm === null || input.odometer >= bounds.lowerKm) &&
-          (bounds.upperKm === null || input.odometer <= bounds.upperKm),
-        400,
-        'INCONSISTENT_ODOMETER',
-        'A quilometragem da troca não corresponde às leituras registradas nessa data.',
-      );
-      await db.execute(
-        'INSERT INTO oil_changes (id,vehicle_id,odometer,changed_at,oil_type,actor_id) VALUES (?,?,?,?,?,?)',
-        [randomUUID(), id, input.odometer, changedAt, input.oilType, userId],
-      );
-      await db.execute(
-        'UPDATE vehicles SET oil_type=?,last_oil_change_km=?,last_oil_change_date=? WHERE id=? AND organization_id=?',
-        [input.oilType, input.odometer, changedAt, id, orgId],
-      );
-      if (changedAt > v.last_update_date) {
-        check(
-          input.odometer >= v.current_odometer,
-          400,
-          'ODOMETER_DECREASE',
-          'A quilometragem não pode diminuir.',
-        );
-        await db.execute(
-          "INSERT INTO readings (id,vehicle_id,odometer,measured_at,source,actor_id) VALUES (?,?,?,?,'MANUAL',?)",
-          [randomUUID(), id, input.odometer, changedAt, userId],
-        );
-        await db.execute('UPDATE vehicles SET current_odometer=?,last_update_date=? WHERE id=?', [
-          input.odometer,
-          changedAt,
-          id,
-        ]);
-      }
-      await audit(db, orgId, userId, 'OIL_CHANGED', id);
+      v = res.locals.vehicle;
+    check(
+      Date.parse(input.changedAt) > Date.parse(v.lastOilChangeDate) &&
+        input.odometer >= v.lastOilChangeKm,
+      400,
+      'OIL_CHANGE_OUT_OF_ORDER',
+      'A troca deve ser posterior à última manutenção, sem reduzir a quilometragem.',
+    );
+    const all = await readings(v.id);
+    const lower = all
+      .filter((r) => r.measuredAt <= input.changedAt)
+      .sort((a, b) => b.measuredAt.localeCompare(a.measuredAt))[0];
+    const upper = all
+      .filter((r) => r.measuredAt >= input.changedAt)
+      .sort((a, b) => a.measuredAt.localeCompare(b.measuredAt))[0];
+    check(
+      (!lower || input.odometer >= lower.odometer) && (!upper || input.odometer <= upper.odometer),
+      400,
+      'INCONSISTENT_ODOMETER',
+      'A quilometragem da troca não corresponde às leituras registradas nessa data.',
+    );
+    await put(carKey(v.id), `OIL#${input.changedAt}#${randomUUID()}`, {
+      id: randomUUID(),
+      odometer: input.odometer,
+      changedAt: input.changedAt,
+      oilType: input.oilType,
+      actorId: res.locals.user.id,
     });
+    const update = {
+      ...v,
+      oilType: input.oilType,
+      lastOilChangeKm: input.odometer,
+      lastOilChangeDate: input.changedAt,
+    };
+    if (input.changedAt > v.lastUpdateDate) {
+      check(
+        input.odometer >= v.currentOdometer,
+        400,
+        'ODOMETER_DECREASE',
+        'A quilometragem não pode diminuir.',
+      );
+      update.currentOdometer = input.odometer;
+      update.lastUpdateDate = input.changedAt;
+      await put(carKey(v.id), `READING#${input.changedAt}#${randomUUID()}`, {
+        id: randomUUID(),
+        odometer: input.odometer,
+        measuredAt: input.changedAt,
+        source: 'MANUAL',
+        actorId: res.locals.user.id,
+      });
+    }
+    await put(orgKey(v.organizationId), `CAR#${v.id}`, update);
+    await audit(v.organizationId, res.locals.user.id, 'OIL_CHANGED', v.id);
     res.status(201).json({ ok: true });
   });
   api.get(`${car}/history`, async (_req, res) => {
-    const readings = await rows<{ id: string; odometer: number; measuredAt: Date; source: string }>(
-      pool,
-      'SELECT id,odometer,measured_at AS measuredAt,source FROM readings WHERE vehicle_id=? ORDER BY measured_at DESC LIMIT 100',
-      [res.locals.vehicleId],
+    const v = res.locals.vehicle;
+    const rs = (await readings(v.id, 100)).map((r) => ({
+      id: r.id,
+      odometer: r.odometer,
+      measuredAt: r.measuredAt,
+      source: r.source,
+    }));
+    const oils = await query(carKey(v.id), 'OIL#', 100);
+    const oilChanges = await Promise.all(
+      oils.map(async (o) => ({
+        id: o.id,
+        odometer: o.odometer,
+        changedAt: o.changedAt,
+        oilType: o.oilType,
+        actorName: (await get(userKey(o.actorId), 'PROFILE'))?.name || '',
+      })),
     );
-    const oilChanges = await rows(
-      pool,
-      'SELECT c.id,c.odometer,c.changed_at AS changedAt,c.oil_type AS oilType,u.name AS actorName FROM oil_changes c JOIN users u ON u.id=c.actor_id WHERE c.vehicle_id=? ORDER BY c.changed_at DESC LIMIT 100',
-      [res.locals.vehicleId],
-    );
-    res.json({ readings, oilChanges });
+    res.json({ readings: rs, oilChanges });
   });
   api.put(`${car}/driver`, admin, async (req, res) => {
     const { driverId } = z.object({ driverId: uuid.nullable() }).strict().parse(req.body);
-    const orgId = res.locals.organizationId,
-      id = res.locals.vehicleId,
-      userId = res.locals.user.id;
+    const v = res.locals.vehicle;
     check(
       res.locals.membership.kind === 'FLEET',
       400,
       'FLEET_REQUIRED',
       'Atribuições estão disponíveis para frotas.',
     );
-    await transaction(async (db) => {
-      if (driverId) {
-        const member = await membership(db, orgId, driverId, true);
-        check(member.role === 'DRIVER', 400, 'DRIVER_REQUIRED', 'Selecione um motorista da frota.');
-      }
-      await vehicle(db, orgId, id, userId, true);
-      await db.execute(
-        'UPDATE vehicles SET assigned_driver_id=? WHERE id=? AND organization_id=?',
-        [driverId, id, orgId],
+    if (driverId)
+      check(
+        (await member(v.organizationId, driverId)).role === 'DRIVER',
+        400,
+        'DRIVER_REQUIRED',
+        'Selecione um motorista da frota.',
       );
-      await audit(db, orgId, userId, 'DRIVER_ASSIGNED', id);
-    });
+    await put(orgKey(v.organizationId), `CAR#${v.id}`, { ...v, assignedDriverId: driverId });
+    await audit(v.organizationId, res.locals.user.id, 'DRIVER_ASSIGNED', v.id);
     res.json({ ok: true });
   });
   api.delete(car, admin, async (_req, res) => {
-    await transaction(async (db) => {
-      await vehicle(db, res.locals.organizationId, res.locals.vehicleId, res.locals.user.id, true);
-      await db.execute(
-        'UPDATE vehicles SET archived_at=UTC_TIMESTAMP(3),assigned_driver_id=NULL WHERE id=? AND organization_id=?',
-        [res.locals.vehicleId, res.locals.organizationId],
-      );
-      await audit(
-        db,
-        res.locals.organizationId,
-        res.locals.user.id,
-        'VEHICLE_ARCHIVED',
-        res.locals.vehicleId,
-      );
+    const v = res.locals.vehicle;
+    await put(orgKey(v.organizationId), `CAR#${v.id}`, {
+      ...v,
+      archivedAt: now(),
+      assignedDriverId: null,
     });
+    await audit(v.organizationId, res.locals.user.id, 'VEHICLE_ARCHIVED', v.id);
     res.status(204).end();
   });
   api.get(`${org}/members`, admin, async (_req, res) => {
-    const members = await rows(
-      pool,
-      'SELECT u.id,u.name,u.email,m.role,(SELECT COUNT(*) FROM vehicles v WHERE v.organization_id=m.organization_id AND v.assigned_driver_id=u.id AND v.archived_at IS NULL) AS assignedCount FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=? ORDER BY m.role,u.name',
-      [res.locals.organizationId],
+    const links = await query(orgKey(res.locals.organizationId), 'MEMBER#');
+    const cars = await query(orgKey(res.locals.organizationId), 'CAR#');
+    const members = await Promise.all(
+      links.map(async (link) => {
+        const user = await get(userKey(link.userId), 'PROFILE');
+        return {
+          id: link.userId,
+          name: user?.name || '',
+          email: user?.email || '',
+          role: link.role,
+          assignedCount: cars.filter((v) => !v.archivedAt && v.assignedDriverId === link.userId)
+            .length,
+        };
+      }),
     );
     res.json({ members });
   });
   api.delete(`${org}/members/:memberId`, admin, async (req, res) => {
-    const memberId = uuid.parse(req.params.memberId),
+    const id = uuid.parse(req.params.memberId),
       orgId = res.locals.organizationId;
-    await transaction(async (db) => {
-      const target = await membership(db, orgId, memberId, true);
-      check(
-        target.role === 'DRIVER',
-        400,
-        'CANNOT_REMOVE_ADMIN',
-        'Gestores não podem ser removidos por esta ação.',
-      );
-      check(
-        !(
-          await rows(
-            db,
-            'SELECT id FROM vehicles WHERE organization_id=? AND assigned_driver_id=? AND archived_at IS NULL FOR UPDATE',
-            [orgId, memberId],
-          )
-        ).length,
-        409,
-        'DRIVER_HAS_VEHICLES',
-        'Desvincule os veículos antes de remover o motorista.',
-      );
-      await db.execute('DELETE FROM memberships WHERE organization_id=? AND user_id=?', [
-        orgId,
-        memberId,
-      ]);
-      await audit(db, orgId, res.locals.user.id, 'MEMBER_REMOVED');
-    });
+    check(
+      (await member(orgId, id)).role === 'DRIVER',
+      400,
+      'CANNOT_REMOVE_ADMIN',
+      'Gestores não podem ser removidos por esta ação.',
+    );
+    const cars = await query(orgKey(orgId), 'CAR#');
+    check(
+      !cars.some((v) => !v.archivedAt && v.assignedDriverId === id),
+      409,
+      'DRIVER_HAS_VEHICLES',
+      'Desvincule os veículos antes de remover o motorista.',
+    );
+    await remove(orgKey(orgId), `MEMBER#${id}`);
+    await remove(userKey(id), `ORG#${orgId}`);
+    await audit(orgId, res.locals.user.id, 'MEMBER_REMOVED');
     res.status(204).end();
   });
   api.post(`${org}/invitations`, admin, async (req, res) => {
@@ -431,100 +632,142 @@ export function createApp() {
       'FLEET_REQUIRED',
       'Convites estão disponíveis para frotas.',
     );
-    const { email } = z
-      .object({
-        email: z
-          .email()
-          .max(254)
-          .transform((v) => v.toLowerCase()),
-      })
-      .strict()
-      .parse(req.body);
-    const orgId = res.locals.organizationId,
-      token = randomBytes(32).toString('base64url');
-    const id = randomUUID();
-    await transaction(async (db) => {
+    const { email: address } = z.object({ email }).strict().parse(req.body);
+    const existing = await userByEmail(address);
+    if (existing)
       check(
-        !(
-          await rows(
-            db,
-            'SELECT m.user_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=? AND u.email=?',
-            [orgId, email],
-          )
-        ).length,
+        !(await get(orgKey(res.locals.organizationId), `MEMBER#${existing.id}`)),
         409,
         'ALREADY_MEMBER',
         'Esta pessoa já faz parte da frota.',
       );
-      await db.execute(
-        'INSERT INTO invitations (id,organization_id,email,token_hash,expires_at) VALUES (?,?,?,?,?)',
-        [id, orgId, email, digest(token), new Date(Date.now() + 7 * 86_400_000)],
-      );
-      await audit(db, orgId, res.locals.user.id, 'INVITATION_CREATED');
+    const token = randomBytes(32).toString('base64url');
+    await put(`INVITE#${digest(token)}`, 'INVITE', {
+      email: address,
+      organizationId: res.locals.organizationId,
+      expiresAt: Date.now() + 7 * 86_400_000,
+      ttl: Math.floor(Date.now() / 1000) + 7 * 86_400,
     });
-    const invitationUrl = await sendInvitation(email, token);
+    await audit(res.locals.organizationId, res.locals.user.id, 'INVITATION_CREATED');
+    const invitationUrl = `${origin}/#invite=${token}`;
+    try {
+      await sendLocalMail(
+        address,
+        'Seu convite para o AutoKeep',
+        `Você recebeu um convite para uma frota.\n\n${invitationUrl}\n\nVálido por sete dias.`,
+      );
+    } catch {
+      console.error(JSON.stringify({ event: 'invitation_mail_failed' }));
+    }
     res.status(201).json({ invitationUrl, expiresInDays: 7 });
   });
   api.get(`${org}/audit`, admin, async (_req, res) => {
-    const events = await rows(
-      pool,
-      'SELECT a.id,a.action,u.name AS actorName,v.name AS vehicleName,a.created_at AS createdAt FROM audit_logs a JOIN users u ON u.id=a.actor_id LEFT JOIN vehicles v ON v.id=a.vehicle_id WHERE a.organization_id=? ORDER BY a.created_at DESC LIMIT 100',
-      [res.locals.organizationId],
+    const logs = await query(orgKey(res.locals.organizationId), 'AUDIT#', 100);
+    const events = await Promise.all(
+      logs.map(async (log) => ({
+        id: log.id,
+        action: log.action,
+        actorName: (await get(userKey(log.actorId), 'PROFILE'))?.name || '',
+        vehicleName: log.vehicleId
+          ? (await get(orgKey(res.locals.organizationId), `CAR#${log.vehicleId}`))?.name || null
+          : null,
+        createdAt: log.createdAt,
+      })),
     );
     res.json({ events });
   });
   api.get(`${org}/notifications`, async (_req, res) => {
-    const notifications = await rows(
-      pool,
-      "SELECT n.id,n.vehicle_id AS vehicleId,n.title,n.body,n.created_at AS createdAt,n.read_at AS readAt FROM notifications n JOIN vehicles v ON v.id=n.vehicle_id WHERE n.organization_id=? AND n.user_id=? AND v.archived_at IS NULL AND (?='ADMIN' OR v.assigned_driver_id=?) ORDER BY n.created_at DESC LIMIT 50",
-      [
-        res.locals.organizationId,
-        res.locals.user.id,
-        res.locals.membership.role,
-        res.locals.user.id,
-      ],
+    const orgId = res.locals.organizationId,
+      user = res.locals.user;
+    // Evaluate only vehicles visible to this recipient; no table scans or paid scheduler.
+    const cars = (await query(orgKey(orgId), 'CAR#')).filter(
+      (v) =>
+        !v.archivedAt && (res.locals.membership.role === 'ADMIN' || v.assignedDriverId === user.id),
     );
+    const partition = `NOTIFY#${orgId}#${user.id}`;
+    for (const car of cars) {
+      const v = await presentCar(car);
+      if (v.status.level === 'OK' && !v.calibrationDue) continue;
+      const event = `${v.id}:${v.lastOilChangeDate}:${v.status.level}:${v.calibrationDue}`;
+      const id = digest(event),
+        key = `NOTICE#${id}`;
+      let notification = await get(partition, key);
+      if (!notification) {
+        const title =
+          v.status.level === 'DUE'
+            ? 'Hora de trocar o óleo'
+            : v.status.level === 'WARNING'
+              ? 'Próxima troca no radar'
+              : 'Atualize sua quilometragem';
+        const body =
+          v.status.level === 'OK'
+            ? `${v.name}: registre uma nova leitura para calibrar a previsão.`
+            : `${v.name} · ${v.plate}: ${Math.max(0, Math.floor(v.status.distanceRemainingKm))} km ou ${Math.max(0, v.status.daysRemaining)} dias para a troca.`;
+        notification = {
+          id,
+          vehicleId: v.id,
+          title,
+          body,
+          createdAt: now(),
+          readAt: null,
+          emailSentAt: null,
+        };
+        try {
+          await put(partition, key, notification, true);
+        } catch (error) {
+          if (!isConditionalFailure(error)) throw error;
+          notification = await get(partition, key);
+        }
+      }
+      if (notification && !notification.emailSentAt && process.env.SMTP_HOST) {
+        try {
+          await sendLocalMail(user.email, notification.title, notification.body);
+          await put(partition, key, { ...notification, emailSentAt: now() });
+        } catch {
+          console.error(JSON.stringify({ event: 'notification_mail_failed' }));
+        }
+      }
+    }
+    const notifications = (await query(partition, 'NOTICE#'))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 100)
+      .map(({ pk, sk, emailSentAt, ...notification }) => notification);
     res.json({ notifications });
   });
   api.post(`${org}/notifications/read`, async (_req, res) => {
-    await pool.execute(
-      'UPDATE notifications SET read_at=UTC_TIMESTAMP(3) WHERE organization_id=? AND user_id=? AND read_at IS NULL',
-      [res.locals.organizationId, res.locals.user.id],
-    );
+    const partition = `NOTIFY#${res.locals.organizationId}#${res.locals.user.id}`;
+    for (const notification of await query(partition, 'NOTICE#')) {
+      if (!notification.readAt)
+        await put(partition, notification.sk, { ...notification, readAt: now() });
+    }
     res.json({ ok: true });
   });
   api.use((_req, _res, next) => next(new AppError(404, 'NOT_FOUND', 'Recurso não encontrado.')));
   app.use('/api', api);
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {
     const errorId = randomUUID();
-    if (error instanceof AppError) {
-      res.status(error.status).json({ code: error.code, message: error.message, errorId });
-      return;
-    }
-    if (error instanceof ZodError || (error instanceof SyntaxError && 'body' in error)) {
-      res
-        .status(400)
-        .json({
-          code: 'INVALID_INPUT',
-          message: 'Confira os campos e as datas informadas.',
-          errorId,
-        });
-      return;
-    }
-    if (error?.code === 'ER_DUP_ENTRY') {
-      res
-        .status(409)
-        .json({ code: 'ALREADY_EXISTS', message: 'Este registro já existe.', errorId });
-      return;
-    }
-    console.error(JSON.stringify({ event: 'request_failed', errorId, code: 'INTERNAL_ERROR' }));
-    res
-      .status(500)
-      .json({
-        code: 'INTERNAL_ERROR',
-        message: 'Não foi possível concluir. Tente novamente.',
+    if (error instanceof AppError)
+      return void res
+        .status(error.status)
+        .json({ code: error.code, message: error.message, errorId });
+    if (error instanceof ZodError || (error instanceof SyntaxError && 'body' in error))
+      return void res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Confira os campos e as datas informadas.',
         errorId,
       });
+    if (isConditionalFailure(error))
+      return void res
+        .status(409)
+        .json({ code: 'ALREADY_EXISTS', message: 'Este registro já existe.', errorId });
+    console.error(
+      JSON.stringify({ event: 'request_failed', errorId, code: (error as Error)?.message }),
+    );
+    res.status(503).json({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Serviço temporariamente indisponível.',
+      errorId,
+    });
   };
   app.use(errors);
   return app;

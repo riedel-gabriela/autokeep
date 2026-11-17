@@ -6,24 +6,11 @@ services:
       - '127.0.0.1:8025:8025'
     restart: unless-stopped
   db:
-    image: mysql:8.0
-    environment:
-      MYSQL_DATABASE: autokeep
-      MYSQL_USER: autokeep
-      MYSQL_PASSWORD: ${DB_PASSWORD:?Execute npm run dev para gerar o .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Execute npm run dev para gerar o .env}
+    image: amazon/dynamodb-local:3.1.0
+    user: root
+    command: '-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data'
     volumes:
-      - mysql-data:/var/lib/mysql
-    healthcheck:
-      test:
-        [
-          CMD-SHELL,
-          'MYSQL_PWD="$$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u "$$MYSQL_USER" -D "$$MYSQL_DATABASE" -e "SELECT 1" >/dev/null 2>&1',
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
+      - dynamodb-data:/home/dynamodblocal/data
     restart: unless-stopped
   app:
     build: .
@@ -36,11 +23,11 @@ services:
       CHOKIDAR_INTERVAL: 1000
       PORT: 8080
       APP_ORIGIN: http://localhost:8080
-      DB_HOST: db
-      DB_PORT: 3306
-      DB_NAME: autokeep
-      DB_USER: autokeep
-      DB_PASSWORD: ${DB_PASSWORD:?Execute npm run dev}
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      DYNAMODB_ENDPOINT: http://db:8000
+      DYNAMODB_TABLE: autokeep-local
       DEMO_PASSWORD: ${DEMO_PASSWORD:?Execute npm run dev}
       SEED_DEMO: 'true'
       SMTP_HOST: mail
@@ -48,12 +35,11 @@ services:
     volumes:
       - ./src:/app/src
       - ./public:/app/public
-      - ./db:/app/db
       - ./index.html:/app/index.html
       - ./vite.config.ts:/app/vite.config.ts
     depends_on:
-      db:
-        condition: service_healthy
+      - db
+      - mail
     restart: unless-stopped
 volumes:
-  mysql-data:
+  dynamodb-data:

@@ -1,61 +1,35 @@
- # AWS TypeScript Pulumi Template
+# Infraestrutura existente — Pulumi
 
- A minimal Pulumi template for provisioning AWS infrastructure using TypeScript. This template creates an Amazon S3 bucket and exports its name.
+Este programa referencia recursos já existentes. Não cria nem altera tabelas,
+Lambdas, permissões ou DNS. O template antigo que criava `my-bucket` foi removido.
 
- ## Prerequisites
+```sh
+npm ci
+pulumi login
+pulumi stack select dev --create
+pulumi config set aws:region us-east-1
+pulumi preview
+pulumi stack select prod --create
+pulumi config set aws:region us-east-1
+pulumi preview
+```
 
- - Pulumi CLI (>= v3): https://www.pulumi.com/docs/get-started/install/
- - Node.js (>= 14): https://nodejs.org/
- - AWS credentials configured (e.g., via `aws configure` or environment variables)
+As stacks usam `autokeep-dev` / `autokeep-prod` e
+`autokeep-api-dev` / `autokeep-api-prod`. `autokeep:tableName` e
+`autokeep:functionName` permitem sobrescrever os nomes explicitamente.
+Uma stack Pulumi não cria, por si só, um recurso AWS pago.
 
- ## Getting Started
+`Table.get` / `Function.get` são referências, não adoção do gerenciamento do
+recurso. Para passar a gerenciar a infraestrutura, primeiro exporte e revise a
+configuração existente, use importação explícita e `protect: true`. Não recrie
+os bancos nem trate `pulumi up` como rotina de desenvolvimento.
 
- 1. Initialize a new Pulumi project:
+DynamoDB: tabelas Standard, 5 RCU e 5 WCU fixos cada, chaves String `pk`/`sk`,
+TTL `ttl`, sem índices, PITR, auto scaling ou chave KMS própria. Lambda existente:
+Node.js 24.x, `index.handler`, memória 256 MB e timeout 15 s (prod).
+Confira sempre o console antes de gerenciar configurações de outro ambiente.
 
-    ```bash
-    pulumi new aws-typescript
-    ```
-
-    Follow the prompts to set your:
-    - Project name
-    - Project description
-    - AWS region (defaults to `us-east-1`)
-
- 2. Preview and deploy your infrastructure:
-
-    ```bash
-    pulumi preview
-    pulumi up
-    ```
-
- 3. When you're finished, tear down your stack:
-
-    ```bash
-    pulumi destroy
-    pulumi stack rm
-    ```
-
- ## Project Layout
-
- - `Pulumi.yaml` — Pulumi project and template metadata
- - `index.ts` — Main Pulumi program (creates an S3 bucket)
- - `package.json` — Node.js dependencies
- - `tsconfig.json` — TypeScript compiler options
-
- ## Configuration
-
- | Key           | Description                             | Default     |
- | ------------- | --------------------------------------- | ----------- |
- | `aws:region`  | The AWS region to deploy resources into | `us-east-1` |
-
- Use `pulumi config set <key> <value>` to customize configuration.
-
- ## Next Steps
-
- - Extend `index.ts` to provision additional resources (e.g., VPCs, Lambda functions, DynamoDB tables).
- - Explore [Pulumi AWSX](https://www.pulumi.com/docs/reference/pkg/awsx/) for higher-level AWS components.
- - Consult the [Pulumi documentation](https://www.pulumi.com/docs/) for more examples and best practices.
-
- ## Getting Help
-
- If you encounter any issues or have suggestions, please open an issue in this repository.
+Não são criados Cognito, SES, CloudFront, API Gateway ou Route 53 aqui.
+Não execute deploy ou introduza consumo pago, mesmo coberto por créditos,
+sem antes informar o recurso/valor e obter autorização explícita do usuário.
+Registro/renovação de domínio pode não aceitar créditos promocionais.

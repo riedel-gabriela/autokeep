@@ -127,3 +127,45 @@ export async function query(pk: string, prefix: string, limit?: number) {
 export function isConditionalFailure(error: unknown) {
   return (error as { code?: string })?.code === 'ConditionalCheckFailedException';
 }
+
+// Only the local development server may create a table. Cloud always uses IaC.
+export async function ensureLocalTable() {
+  if (!process.env.DYNAMODB_ENDPOINT) throw new Error('DYNAMODB_LOCAL_ENDPOINT_REQUIRED');
+  const url = new URL(endpoint);
+  if (
+    process.env.NODE_ENV === 'production' ||
+    url.protocol !== 'http:' ||
+    !['localhost', '127.0.0.1', 'db', 'host.docker.internal'].includes(url.hostname)
+  ) {
+    throw new Error('DYNAMODB_LOCAL_ENDPOINT_REQUIRED');
+  }
+  for (let attempt = 0; attempt < 30; attempt++) {
+    try {
+      try {
+        await request('DescribeTable', {});
+      } catch (error) {
+        if ((error as { code?: string }).code !== 'ResourceNotFoundException') throw error;
+        try {
+          await request('CreateTable', {
+            AttributeDefinitions: [
+              { AttributeName: 'pk', AttributeType: 'S' },
+              { AttributeName: 'sk', AttributeType: 'S' },
+            ],
+            KeySchema: [
+              { AttributeName: 'pk', KeyType: 'HASH' },
+              { AttributeName: 'sk', KeyType: 'RANGE' },
+            ],
+            ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
+          });
+        } catch (createError) {
+          if ((createError as { code?: string }).code !== 'ResourceInUseException')
+            throw createError;
+        }
+      }
+      return;
+    } catch (error) {
+      if (attempt === 29) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}

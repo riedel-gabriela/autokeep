@@ -1,138 +1,39 @@
-# Implementação local — 0.1.0
+# Implementação unificada
 
-## Decisões desta etapa
+A refatoração substitui o backend MySQL local por DynamoDB Local e mantém uma
+única API Express para Docker, Vercel e Lambda. Foram removidos as migrações SQL,
+o repositório SQL, autenticação/seed locais duplicados e worker MySQL.
 
-- **MySQL 8.0 local:** relações entre organizações, pessoas, veículos,
-  atribuições e históricos; transações para alterações consistentes; chaves
-  estrangeiras e isolamento por organização em todas as consultas de negócio.
-  A imagem local existente foi preservada. A API publicada usa DynamoDB.
-- **TypeScript:** regras e contratos compartilháveis entre API, web e futuro
-  cliente mobile. React oferece uma interface responsiva; React Native poderá
-  reutilizar os contratos e regras, mas exigirá componentes de interface próprios.
-- **API Express:** `createApp()` atende o Docker e `createCloudApp()` atende a
-  Vercel, com o mesmo contrato HTTP e regras de apresentação de veículos.
-- **Desenvolvimento local:** Docker Compose com aplicação, banco e Mailpit.
-  `npm run dev` e `npm run deve` sobem o ambiente em `localhost:8080`.
-- **Autenticação local:** usuário e senha com bcrypt, cookies HttpOnly,
-  SameSite Strict, validade de 12 horas, tokens aleatórios e apenas hashes no
-  banco; validação de origem e JSON nas escritas e limite de tentativas de login.
-  O modo local se recusa a iniciar em produção. O login publicado também usa
-  bcrypt e sessão opaca, persistida no DynamoDB.
-- **Identidade visual:** paleta verde, fundo claro, marca de cuidado automotivo,
-  interface com navegação inferior em telas pequenas e manifest de instalação.
+O Docker mantém banco persistente na rede interna e usa credenciais fictícias.
+A criação automática de tabela é limitada a endpoint HTTP local conhecido e
+bloqueada em produção. Não cria recursos AWS.
 
-## Cobertura funcional
+Notificações antes vazias no backend cloud agora são persistidas, deduplicadas
+e marcadas como lidas. São avaliadas sob demanda ao abrir a caixa de avisos,
+sem scan global nem agendador. Isso substitui a avaliação local de 15 minutos:
+sem acesso ao app não há novos avisos/emails. SMTP segue restrito ao Mailpit.
 
-| Requisito                 | Implementação local                                                  |
-| ------------------------- | -------------------------------------------------------------------- |
-| Gestão do próprio veículo | Garagem pessoal com leitura, trocas e histórico                      |
-| Gestão de frota           | Dashboard, lista/cartões, busca, filtros e atribuições               |
-| Multiempresa              | Organizações isoladas e seleção do espaço ativo                      |
-| RBAC                      | ADMIN gerencia; DRIVER só consulta atribuídos e registra km          |
-| Convites                  | Token de uso único por e-mail, hash SHA-256, expiração de 7 dias     |
-| Remoção de motorista      | Bloqueada enquanto houver veículo atribuído                          |
-| Exclusão de veículo       | Arquivamento preservando leituras, trocas e auditoria                |
-| Duplo relógio             | Mineral 5.000, semi 8.000, sintético 12.000 km ou 365 dias           |
-| Pré-alerta                | Últimos 500 km ou 30 dias; primeiro limite atingido                  |
-| Calibração                | Até 3 leituras reais; lembrete após 30 dias com menos de 3           |
-| Previsão                  | Média ponderada pelo tempo entre as 3 últimas leituras               |
-| Auditoria                 | Login/logout, convites, leituras, trocas, atribuições e arquivamento |
-| Alertas                   | Avaliador automático; avisos no app e e-mails no Mailpit             |
-| OBD2                      | Receba total confirmado; conexão automática a hardware pendente      |
-| OAuth externo             | Substituído nesta fase pelo login local solicitado                   |
-| Push remoto               | Pendente: provedor, subscriptions e credenciais                      |
-| Dev/Prod em nuvem         | Planejados para duas stacks Pulumi; sem provisionamento              |
-| Resposta abaixo de 200 ms | Meta da especificação; sem medição nesta etapa                       |
+O Pulumi deixou de criar um bucket genérico e agora referencia somente tabelas
+e Lambdas existentes, com stacks dev/prod. Referenciar não significa importar
+recursos para gerenciamento. DNS e recursos extras não são criados.
 
-### Regras de dados
+## Validação
 
-As leituras reais nunca são substituídas por projeções. Sem duas leituras
-separadas por pelo menos um dia, a média fica em zero e a previsão utiliza
-apenas o limite temporal. A média usa `(última km − primeira km) / dias` na
-janela das três últimas leituras, ponderando os intervalos pelo tempo.
+`npm test`: limites temporais/quilométricos, projeção, média e calibração.
+`npm run test:integration`: API real com DynamoDB Local descartável, login,
+isolamento de organização, RBAC, convites de uso único sequencial, persistência
+e deduplicação de notificações e logout. Recusa endpoints cloud.
+`npm run build`: TypeScript e SPA. `npm run build:lambda`: pacote local.
 
-Leituras rejeitam datas futuras, ordem cronológica invertida e redução do
-odômetro. Trocas devem ser posteriores à manutenção anterior e coerentes com
-as leituras antes e depois da data. Trocar motorista não altera calibração,
-histórico ou o ciclo de óleo. Datas são persistidas em UTC.
+## Limites preservados
 
-O odômetro previsto cresce a partir da última leitura real e da média diária.
-Pode antecipar um alerta, por isso a interface distingue leitura e estimativa.
-Atualize o valor real para recalibrar o cálculo.
+Não há migração automática dos dados MySQL antigos; seu volume não é apagado.
+Não há OAuth/Cognito, push, email cloud, offline ou leitura Bluetooth OBD2.
+Sem scheduler cloud, notificações não são emitidas em background.
+Operações multitem não são transacionais: disputas concorrentes exigem evolução
+específica. Latência abaixo de 200 ms não foi medida.
 
-### Integrações locais
-
-Mailpit captura e-mails na rede Docker; SMTP sem TLS se limita a esse
-transporte local. A camada de envio precisará ser substituída por SES com
-identidade verificada no ambiente AWS.
-
-Um registro de notificação é deduplicado por destinatário, veículo, ciclo e
-nível. A evolução de pré-alerta para vencimento gera um novo aviso. Uma falha
-no SMTP é registrada sem destinatário ou conteúdo e não impede o aviso no app.
-O estado de entrega fica no banco e os e-mails pendentes são tentados de novo
-na próxima avaliação. Em produção, use uma fila/outbox com lease e backoff:
-uma interrupção entre o envio e a confirmação no banco pode duplicar um e-mail.
-
-A seleção OBD2 permite registrar um valor confirmado. Não há implementação
-de pareamento Bluetooth/Wi-Fi nesta fase. O PID padrão `01 31` mede distância
-desde a limpeza de códigos de falha e não deve ser apresentado como odômetro
-total. Perfis por fabricante e adaptador ainda precisam de hardware real.
-
-O manifest permite uma experiência instalável onde suportada. O aplicativo
-requer conexão com a API; cache offline e push em segundo plano ainda não
-estão implementados.
-
-## API e contrato
-
-Os recursos principais mantêm os caminhos de `docs/openapi.yaml`.
-As extensões locais incluem `/api/auth/login`, `/api/auth/logout`,
-`/api/auth/register-invited`, `/api/session`, detalhes/histórico de veículo,
-auditoria e notificações. O contrato original descreve Cognito; use
-`docs/openapi.local.yaml` para o contrato da implementação atual.
-
-## Caminho para AWS
-
-1. Crie um projeto Pulumi com stacks `dev` e `prod`, recursos e credenciais
-   isolados. Use o mesmo código da infraestrutura com configurações por stack.
-2. Mantenha o frontend e a API na Vercel Hobby enquanto o uso estiver dentro
-   da cota gratuita; o servidor Vite é só para desenvolvimento.
-3. Provisione uma tabela DynamoDB Standard por stack, considerando que a cota
-   de 25 RCU e 25 WCU é compartilhada por conta e região.
-4. Integre Cognito/OIDC, SES, EventBridge e entrega Web Push/FCM/APNs. Implante
-   o avaliador como worker agendado, preservando a idempotência.
-5. Acrescente CI/CD, DNS e observabilidade; defina e meça a meta de latência.
-
-### Custo e significado de stack
-
-Uma stack Pulumi é uma instância isolada de recursos. `dev` e `prod` podem
-usar o mesmo programa IaC e valores diferentes; o nome da stack não define
-como o frontend é executado. Docker local não exige uma stack AWS.
-
-É possível automatizar o provisionamento pelo npm, mas `pulumi up` e executar
-o processo da aplicação continuam tendo responsabilidades diferentes.
-Não vincule o comando cotidiano de desenvolvimento ao provisionamento de
-produção.
-
-O plano gratuito da conta AWS tem prazo e créditos. A tabela provisionada com
-5 RCU e 5 WCU está dentro da cota Always Free do DynamoDB Standard; outras
-opções como backups contínuos, KMS próprio e replicação ficam desligadas.
-
-Fontes oficiais consultadas em 15/10/2026:
-
-- [AWS Free Tier](https://aws.amazon.com/free/free-tier-faqs/)
-- [Preços do DynamoDB](https://aws.amazon.com/dynamodb/pricing/)
-- [Stacks Pulumi](https://www.pulumi.com/docs/iac/concepts/stacks/)
-
-## Segurança e limites da revisão
-
-Foram aplicados validação por schema, queries parametrizadas, autorização por
-organização e recurso, sessões aleatórias, senhas com hash, verificação de
-origem e tratamento de erros sem detalhes de infraestrutura. React renderiza
-texto de usuário sem HTML arbitrário.
-
-A skill `meli-security-expert` foi consultada como referência preventiva
-(SQLi, XSS, CSRF, autenticação, autorização, credenciais e erros). Os SDKs e
-serviços privados Fury descritos nela não se aplicam ao destino pessoal AWS
-solicitado. Esta implementação não declara conformidade com a plataforma Fury
-nem aprovação por um scanner corporativo. Testes automatizados e medições de
-carga não foram executados nesta etapa.
+A especificação PDF e `openapi.yaml` são referências originais. O contrato atual
+está em `openapi.local.yaml`; a API unificada usa os mesmos caminhos em nuvem.
+Veja `aws-review.md` para recursos auditados e `milestone-audit.md` para diagnóstico
+histórico das milestones antes da refatoração.

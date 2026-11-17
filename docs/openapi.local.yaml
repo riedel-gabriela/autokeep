@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: AutoKeep — API local
+  title: AutoKeep — API unificada
   version: 0.1.0
   description: |
-    API da implementação MySQL. Sessões HttpOnly; escritas exigem Origin
+    API DynamoDB compartilhada por Docker, Vercel e Lambda. Sessões HttpOnly; escritas exigem Origin
     igual a APP_ORIGIN e Content-Type application/json, inclusive DELETE.
     Datas em ISO 8601, UTC. API original Cognito em openapi.yaml.
 servers:
