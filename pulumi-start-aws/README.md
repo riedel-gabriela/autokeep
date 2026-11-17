@@ -32,4 +32,4 @@ Confira sempre o console antes de gerenciar configurações de outro ambiente.
 Não são criados Cognito, SES, CloudFront, API Gateway ou Route 53 aqui.
 Não execute deploy ou introduza consumo pago, mesmo coberto por créditos,
 sem antes informar o recurso/valor e obter autorização explícita do usuário.
-Registro/renovação de domínio pode não aceitar créditos promocionais.
+Registro de domínio no Route 53 não é coberto por créditos promocionais.

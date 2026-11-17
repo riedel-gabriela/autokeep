@@ -1,7 +1,9 @@
 .git
-node_modules
-dist
+**/node_modules
+**/dist
 .env
 .env.*
-docs/assets
-docs/*.pdf
+docs
+pulumi-start-aws
+tests
+coverage

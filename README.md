@@ -107,7 +107,7 @@ por créditos, sem primeiro informar recurso/valor e obter autorização explíc
 A política em `infra/autokeep-dynamodb-policy.json` é um exemplo exclusivo de dev;
 não deve ser aplicada à role de prod. Não habilite RDS, NAT Gateway, PITR, KMS
 próprio, auto scaling ou outros serviços apenas para cumprir um diagrama.
-Registro de domínio pode não aceitar créditos promocionais.
+Registro de domínio no Route 53 não é coberto por créditos promocionais.
 
 ## Estrutura
 
