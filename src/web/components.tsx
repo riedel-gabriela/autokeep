@@ -22,13 +22,11 @@ export const dayIso = (s: string) => new Date(`${s}T00:00:00`).toISOString();
 export function Brand({ light = false }: { light?: boolean }) {
   return (
     <a href="/" className={`brand ${light ? 'light' : ''}`} aria-label="AutoKeep, início">
-      <img
-        className="brand-wordmark"
-        src="/autokeep-wordmark.png"
-        width="174"
-        height="58"
-        alt="AutoKeep"
-      />
+      <img className="brand-mark" src="/autokeep-mark.svg" width="43" height="43" alt="" />
+      <span className="brand-name">
+        Auto<span>Keep</span>
+        <small>MANUTENÇÃO EM DIA</small>
+      </span>
     </a>
   );
 }
@@ -47,29 +45,29 @@ export function CarArt({ compact = false }: { compact?: boolean }) {
       />
       <path
         d="M191 115l45-53c5-5 12-7 21-7h31v60h-97zm112-60h45c12 0 22 6 32 19l29 41H303V55z"
-        fill="#eaf0e4"
+        fill="#e5ebf2"
       />
       <path d="M328 60h17c11 0 20 5 27 15l25 33h-69V60z" fill="#fff" opacity=".36" />
       <path
         d="M286 125v63m-111-62l-19 62m257-62l20 62"
-        stroke="#eaf0e4"
+        stroke="#e5ebf2"
         strokeOpacity=".25"
         strokeWidth="2"
       />
-      <path d="M64 168h38l-8 14H61m391-37h36l8 15h-37l-7-15z" fill="#d7f0a2" />
-      <rect x="308" y="130" width="26" height="5" rx="2.5" fill="#eaf0e4" opacity=".5" />
-      <rect x="207" y="130" width="26" height="5" rx="2.5" fill="#eaf0e4" opacity=".5" />
-      <path d="M64 196h434" stroke="#0b2a20" strokeWidth="8" strokeLinecap="round" />
-      <circle cx="151" cy="194" r="38" fill="#193129" />
-      <circle cx="151" cy="194" r="24" fill="#d5ded4" />
-      <circle cx="151" cy="194" r="14" stroke="#52685c" strokeWidth="3" />
-      <circle cx="151" cy="194" r="4" fill="#52685c" />
-      <circle cx="413" cy="194" r="38" fill="#193129" />
-      <circle cx="413" cy="194" r="24" fill="#d5ded4" />
-      <circle cx="413" cy="194" r="14" stroke="#52685c" strokeWidth="3" />
-      <circle cx="413" cy="194" r="4" fill="#52685c" />
+      <path d="M64 168h38l-8 14H61m391-37h36l8 15h-37l-7-15z" fill="#ffb14a" />
+      <rect x="308" y="130" width="26" height="5" rx="2.5" fill="#e5ebf2" opacity=".5" />
+      <rect x="207" y="130" width="26" height="5" rx="2.5" fill="#e5ebf2" opacity=".5" />
+      <path d="M64 196h434" stroke="#111923" strokeWidth="8" strokeLinecap="round" />
+      <circle cx="151" cy="194" r="38" fill="#202a35" />
+      <circle cx="151" cy="194" r="24" fill="#d7dfe8" />
+      <circle cx="151" cy="194" r="14" stroke="#586a80" strokeWidth="3" />
+      <circle cx="151" cy="194" r="4" fill="#586a80" />
+      <circle cx="413" cy="194" r="38" fill="#202a35" />
+      <circle cx="413" cy="194" r="24" fill="#d7dfe8" />
+      <circle cx="413" cy="194" r="14" stroke="#586a80" strokeWidth="3" />
+      <circle cx="413" cy="194" r="4" fill="#586a80" />
       <path
-        d="M83 104h60m-85 17h39m344-68h36m-18-18v36"
+        d="M83 104h60m-85 17h39m344-68h36m-8-12l-8 24"
         stroke="currentColor"
         strokeWidth="3"
         strokeLinecap="round"
