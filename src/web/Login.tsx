@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, Check, Eye, EyeOff, LoaderCircle, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, Eye, EyeOff, LoaderCircle, ShieldCheck, Wrench } from 'lucide-react';
 import type { Session } from '../shared/domain.js';
 import { write } from './api.js';
 import { Brand, CarArt } from './components.js';
@@ -49,12 +49,12 @@ export function Login({
         <Brand />
         <div className="login-story-content">
           <span className="eyebrow">
-            <Sparkles size={15} /> MENOS PREOCUPAÇÃO, MAIS CAMINHO
+            <Wrench size={15} /> MANUTENÇÃO SOB CONTROLE
           </span>
           <h1>
-            Cuidar do carro.
+            Seu carro em dia.
             <br />
-            Seguir tranquilo.
+            Você no comando.
           </h1>
           <p>Da sua garagem à sua frota, a próxima manutenção está sempre no radar.</p>
           <CarArt />
@@ -70,7 +70,7 @@ export function Login({
             </span>
           </div>
         </div>
-        <footer>Seu próximo destino começa com cuidado.</footer>
+        <footer>Mais controle na garagem. Mais confiança na estrada.</footer>
       </section>
       <section className="login-form-panel">
         <div className="mobile-brand">
