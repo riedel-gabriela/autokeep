@@ -4,7 +4,8 @@ Data: 18/11/2026.
 
 Base da comparação: `main` no commit `ac69017438c754fbc9cd6337b4be52f421832e75`
 (`feat: publish persistent autokeep app`). O documento descreve o conjunto de
-alterações locais preparado para a branch `alterações-stacks`.
+alterações da branch `alterações-stacks`, incluindo os commits `5831e65` e
+`e733438` e esta atualização documental.
 
 ## 1. Documentação da sprint 1
 
@@ -80,11 +81,65 @@ Não houve migração do banco nem alteração da publicação Vercel.
 | `npm run sam:db` | Iniciar DynamoDB Docker e preparar autokeep-local |
 | `npm run sam:local` | Iniciar a API em localhost:3000 |
 | `npm run sam:test` | Verificar saúde e rejeições de autenticação/origem |
+| `npm run sam:test:integration` | Criar fixtures isoladas e testar fluxos e permissões pela API SAM |
 | `npm run sam:down` | Parar o banco local preservando o volume |
+
+### Testes funcionais e correção de autorização
+
+- Criado `scripts/sam-integration.mjs`, com contas fictícias ADMIN, DRIVER e
+  ADMIN de outra organização, dados isolados por execução e senha aleatória.
+- Os 19 cenários aprovados cobrem login, cookies, restauração e expiração de
+  sessão, logout, cadastro/consulta de veículos, atribuição, leituras, trocas
+  de óleo e isolamento de permissões/organizações.
+- Regressão de quilometragem, datas futuras e inconsistências de manutenção
+  são rejeitadas sem alterar os dados verificados no banco local.
+- Encontrada e corrigida falha que permitia a DRIVER cadastrar veículos:
+  adicionado middleware ADMIN ao POST de veículos nas APIs MySQL e DynamoDB.
+  O teste confirmou HTTP 403 e ausência de gravação pelo motorista.
+- Fixtures e resultados ficam em `sam/*.local.json`, ignorados pelo Git.
+- Evidências e limites em `docs/testes-api-local.md`. A suíte foi executada no
+  caminho SAM/DynamoDB; não representa validação funcional completa do MySQL
+  ou da interface no navegador.
+
+## 4.1. Publicação da API de desenvolvimento na AWS
+
+- Adicionado `infra/api.ts`, com Lambda, role IAM, política inline, grupo de
+  logs, API Gateway HTTP, integração payload 2.0, permissão de invocação,
+  rota proxy e estágio default.
+- Publicação habilitada somente em dev com `autokeep:enableApi=true`;
+  o código rejeita habilitação em prod nesta etapa.
+- Função `autokeep-dev-api`: Node.js 24, handler `index.handler`, 512 MB e
+  timeout de 30 segundos. Logs mantidos por 14 dias no grupo próprio.
+- Role permite GetItem, PutItem, DeleteItem e Query somente na tabela
+  `autokeep-dev`; logs limitados ao grupo da função. Não há chaves AWS estáticas
+  nas variáveis da Lambda.
+- Endpoint: <https://byy7qmnzsi.execute-api.us-east-1.amazonaws.com>.
+- Rota: `ANY /api/{proxy+}`; limites do estágio: 5 requisições/s e burst 10.
+- Sessão, organização e papel continuam validados pela aplicação; health é público.
+  `APP_ORIGIN` aponta para a própria API e `SEED_DEMO=false`.
+- Atualizado `scripts/build-lambda.mjs` para esbuild e compactação portátil
+  com fflate, sem depender de zip externo ou PowerShell Archive.
+- ZIP verificado: apenas `index.cjs`; Pulumi também empacota somente esse arquivo.
+- Adicionados `infra/tests/api.test.ts` e `scripts/verify-dev-api.mjs`.
+- Evidências em `docs/api-dev-publicada.md` e atualização do checklist das sprints.
+
+### Resultado externo da publicação
+
+Preview revisado: nove recursos adicionais e três existentes inalterados.
+Aplicação concluída em dev; AWS confirmou função Active e atualização Successful.
+O endpoint retornou health 200, sessão ausente 401, origem inválida 403 e login
+inválido 401. Registros REPORT foram confirmados no CloudWatch.
+
+A simulação IAM por recurso confirmou as quatro operações permitidas em dev e
+implicitDeny em prod, sem ler/gravar dados de produção. Não foram criados dados
+de negócio na nuvem para essa verificação. A stack prod manteve seus três
+recursos e a data de atualização anterior. O frontend Vercel não foi alterado.
 
 ## 5. Arquivos ignorados e credenciais
 
 - `.gitignore` inclui artefatos `.aws-sam/` e configuração local `samconfig.toml`.
+- Dados, senhas fictícias e resultados de testes em `sam/*.local.json` também
+  são ignorados; o relatório versionado contém somente cenários e evidências.
 - Exceções permitem versionar `infra/Pulumi.dev.yaml` e `infra/Pulumi.prod.yaml`.
 - Não são incluídos `.env`, tokens, credenciais AWS/Pulumi, `node_modules`,
   arquivos de build ou volumes Docker.
@@ -96,7 +151,8 @@ Não houve migração do banco nem alteração da publicação Vercel.
 
 - Conferência estrutural de 22 operações OpenAPI por backend, referências e links locais.
 - `npm run check --prefix infra`: TypeScript aprovado.
-- `npm test --prefix infra`: quatro testes aprovados após o modo sem DNS.
+- `npm test --prefix infra`: cinco testes aprovados, incluindo IAM, integração
+  HTTP e credenciais de execução da API dev com mocks.
 - Script PowerShell validado sintaticamente e com execução simulada.
 - Preview real e aplicação Pulumi concluídos para as duas stacks.
 - DescribeTable confirmou estado, capacidade, chaves e proteção das tabelas.
@@ -105,6 +161,13 @@ Não houve migração do banco nem alteração da publicação Vercel.
 - `npm run sam:test`: saúde 200, sessão ausente 401 e origem inválida 403,
   usando Lambda em Docker e DynamoDB local.
 - `npm run build`: TypeScript e frontend compilados com sucesso.
+- `npm run sam:test:integration`: 19 cenários aprovados, zero falhas após a
+  correção da autorização de cadastro de veículo.
+- `npm run build:lambda`: bundle CommonJS e ZIP gerados; conteúdo conferido.
+- Preview e up da API dev concluídos; função ativa e logs de execução confirmados.
+- `scripts/verify-dev-api.mjs`: quatro verificações HTTP reais aprovadas,
+  sem criação de dados de negócio.
+- Simulação IAM confirmou acesso ao banco dev e negação ao banco prod.
 
 As verificações foram executadas durante a implementação; não constituem ainda
 uma pipeline de CI. Não houve renderização visual automatizada dos diagramas.
@@ -112,9 +175,14 @@ uma pipeline de CI. Não houve renderização visual automatizada dos diagramas.
 ## 7. Limites e próximos passos
 
 - DNS e domínio continuam pendentes; nenhum recurso Route 53 foi provisionado.
-- Lambda/API Gateway na AWS ainda não foram publicados nesta etapa.
-- O banco SAM fica vazio por padrão: seed de contas e testes completos de negócio
-  ainda precisam ser preparados.
+- Lambda/API Gateway já foram publicados em dev; publicação da API em prod
+  continua pendente e desabilitada no programa nesta etapa.
+- O banco SAM fica vazio antes dos testes; a suíte agora prepara fixtures para
+  os fluxos de negócio. Cobertura completa, concorrência e testes de interface
+  permanecem pendentes.
+- Login válido e gravações de negócio na nuvem ainda precisam de contas de
+  desenvolvimento preparadas por procedimento controlado; fixtures locais
+  não foram migradas para AWS.
 - E-mail real, worker remoto, push, OBD2 real, testes abrangentes e CI/CD
   permanecem no backlog conforme o escopo acordado.
 - Acesso e integração com a publicação Vercel continuam pendentes.
