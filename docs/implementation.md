@@ -13,9 +13,14 @@ e marcadas como lidas. São avaliadas sob demanda ao abrir a caixa de avisos,
 sem scan global nem agendador. Isso substitui a avaliação local de 15 minutos:
 sem acesso ao app não há novos avisos/emails. SMTP segue restrito ao Mailpit.
 
-O Pulumi deixou de criar um bucket genérico e agora referencia somente tabelas
-e Lambdas existentes, com stacks dev/prod. Referenciar não significa importar
-recursos para gerenciamento. DNS e recursos extras não são criados.
+O Pulumi adota as tabelas e Lambdas existentes e importa a hosted zone Route 53
+`autokeep.negoci.online`, criada em 18/11/2026. A hospedagem AWS está preparada
+como opção desativada por padrão na stack `prod`: bucket privado S3, CloudFront,
+API Gateway HTTP e integração com a Lambda existente. Ela pode ser testada pelo
+hostname `cloudfront.net`, sem depender da delegação do subdomínio. Depois que o
+administrador de `negoci.online` delegar os nameservers, o Pulumi também pode
+provisionar certificado ACM e aliases Route 53. A implantação e a migração de
+tráfego ainda não foram executadas.
 
 ## Validação
 

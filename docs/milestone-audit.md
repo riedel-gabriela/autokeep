@@ -33,6 +33,20 @@ O estado fechado das issues da disciplina não comprova conclusão neste projeto
 
 Presença no código não equivale a validação funcional ou de segurança.
 
+## Atualização 18/11/2026 — hospedagem AWS preparada
+
+A branch de trabalho adiciona configuração Pulumi opcional para S3 privado,
+CloudFront, função de rewrite SPA, API Gateway HTTP e integração payload 2.0
+com a Lambda prod. `hostingEnabled` e `customDomainEnabled` permanecem falsos,
+portanto nada disso foi provisionado. O bundle Lambda agora gera `index.js`,
+correspondendo ao handler `index.handler`.
+
+O build SPA atual ocupa 564 KiB em 18 arquivos. `npm run build`,
+`npm run build:lambda` e `npm run check` do projeto Pulumi foram concluídos.
+Não foi executado teste funcional AWS nem `pulumi up`. A zona Route 53 já
+existe, mas segue sem delegação no domínio pai. O deploy Vercel permanece
+ativo até a validação ponta a ponta da hospedagem AWS.
+
 ## Gaps funcionais e divergências documentais
 
 - src/server/cloud-app.ts: notificações retornam sempre `[]`; marcar como lidas

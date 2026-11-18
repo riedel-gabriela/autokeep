@@ -1,70 +1,111 @@
-# Adoção protegida da infraestrutura existente
+# Infraestrutura AWS do AutoKeep
 
-Este projeto Pulumi prepara a adoção das tabelas DynamoDB e Lambdas existentes
-em `us-east-1`. Ele não declara Route 53, API Gateway, Cognito, S3, RDS ou
-outros serviços. Os arquivos `Pulumi.dev.yaml` e `Pulumi.prod.yaml` contêm
-somente região, conta, nomes de recursos e roles; não contêm credenciais.
+O projeto mantém em Pulumi os recursos existentes e prepara, somente na stack
+`prod`, a hospedagem do frontend e da API:
 
-O código usa `import` para associar recursos existentes ao estado Pulumi,
-`protect` e `retainOnDelete` para impedir remoções acidentais, e ignora campos
-de código/configuração da Lambda que não devem ser implantados durante a
-adoção. A configuração de conta/região e os nomes são verificados antes de
-declarar os recursos.
+- DynamoDB `autokeep-prod` e Lambda `autokeep-api-prod` existentes;
+- hosted zone Route 53 `autokeep.negoci.online` existente;
+- bucket S3 privado para os arquivos de `dist/web`;
+- CloudFront com HTTPS padrão, função de rewrite SPA e comportamento `/api/*`;
+- API Gateway HTTP `$default` integrado à Lambda em payload 2.0.
 
-## Estado confirmado
+A hospedagem permanece desativada por padrão (`hostingEnabled: false`). A stack
+`dev` continua apenas com os recursos existentes. Nenhum recurso AWS foi
+provisionado por esta alteração.
 
-Na consulta anterior ao Codespaces, o backend era `app.pulumi.com`, organização
-`riedel-gabriela-org`, projeto `autokeep`. Havia uma stack `dev` vazia e nenhuma
-stack `prod` acessível. As tabelas e Lambdas existem na AWS, mas ainda não
-estavam registradas no estado Pulumi. Consulte
-[o registro Codespaces](../docs/codespaces-validation.md).
+## Domínio
 
-O preview de adoção ainda precisa ser executado no Codespaces com as
-credenciais AWS e o token Pulumi já disponíveis lá. O checkout local não tem
-os CLIs `aws` e `pulumi`; nenhum preview ou import foi executado nesta sessão.
+O endpoint `*.cloudfront.net` pode ser publicado e testado antes da delegação
+de `autokeep.negoci.online`. O HTTPS desse endpoint usa o certificado padrão
+da CloudFront. Para habilitar o domínio próprio, primeiro o administrador de
+`negoci.online` precisa delegar o subdomínio aos quatro nameservers da hosted
+zone. Então `customDomainEnabled` cria um certificado ACM com validação DNS,
+publica os registros Route 53 e adiciona o alias ao CloudFront.
 
-## Procedimento seguro no Codespaces
+## Custos e limite da conta
 
-Instale dependências e confira o TypeScript:
+A hosted zone existente custa US$ 0,50/mês, mais consultas; essa cobrança já
+foi autorizada. CloudFront usa preço por uso, com franquia mensal de 1 TB de
+transferência, 10 milhões de requisições e 2 milhões de invocações da CloudFront
+Function. API Gateway HTTP não tem taxa mínima e oferece até 1 milhão de
+chamadas por mês por até 12 meses para contas elegíveis. S3 cobra por
+armazenamento, requisições e transferência. ACM para certificado público
+usado com CloudFront não tem cobrança pelo certificado.
+
+A console AWS consultada em 18/11/2026 mostrou plano Free, US$ 140 em créditos
+ativos e custo acumulado estimado de US$ 0. O plano cobre os custos enquanto
+estiver ativo, mas o acesso acaba quando o plano vencer ou os créditos
+terminarem. A data observada para o fim do plano é 23/03/2027. Franquias não
+são um limite de gasto e um orçamento da AWS apenas alerta; não interrompe
+recursos automaticamente. Não ativar `hostingEnabled` nem executar `pulumi up`
+sem revisar o preview e informar antes o custo/limite estimado da etapa.
+
+## Preparar no Codespaces
+
+As credenciais AWS e o token Pulumi ficam nos secrets do Codespace; não os
+copie para o repositório ou terminal de saída.
+
+Na raiz do repositório:
+
+```sh
+npm ci
+npm run build
+npm run build:lambda
+```
+
+No projeto Pulumi:
 
 ```sh
 cd pulumi-start-aws
 npm ci
 npm run check
 pulumi login
+pulumi stack select prod
+pulumi preview --diff
 ```
 
-Para `dev`, selecione a stack vazia existente. Para `prod`, inicialize apenas
-o registro de stack no backend Pulumi se ainda não existir. Isso não cria
-recursos AWS:
+Com hospedagem desativada, o preview deve mostrar somente a importação da
+hosted zone existente `Z034110231W3QV3DHBMS`. A importação associa a zona ao
+Pulumi; não cria outra zona nem configura registros da aplicação.
+
+## Ativação da hospedagem
+
+A ativação é deliberada e restrita a `prod`. O primeiro deploy usa o domínio
+Vercel atual como `appOrigin` durante a criação dos recursos; depois que o
+preview/aplicação criar a distribuição, atualize a origem para a URL CloudFront
+exportada. Isso preserva os demais valores de ambiente da Lambda como segredo.
 
 ```sh
-pulumi stack select dev
-pulumi preview --diff
-pulumi stack select prod || pulumi stack init prod
+pulumi config set autokeep:hostingEnabled true --stack prod
+pulumi config set autokeep:appOrigin https://autokeep-olive.vercel.app --stack prod
 pulumi preview --diff
 ```
 
-Os arquivos YAML versionados fornecem os valores não secretos de cada stack.
-Revise cada preview: a adoção segura deve mostrar somente importações dos
-recursos existentes e nenhuma criação, atualização, substituição ou remoção de
-recursos AWS. Se aparecer qualquer outra operação, pare e investigue. Não rode
-`pulumi up`, `pulumi import`, `destroy` ou alteração de configuração da AWS
-antes dessa revisão e autorização explícita.
+Revise cada recurso e custo antes de aplicar. Após a distribuição existir, use
+`cloudFrontUrl` exportada como `appOrigin`, gere um novo preview e aplique a
+atualização da Lambda. Só então teste `/api/health`, login, cookies, operações
+de gravação e rotas da SPA pelo endereço CloudFront.
 
-Não copie credenciais para arquivos, logs ou documentação. Não amplie as
-permissões IAM só para contornar consultas negadas. Nenhum recurso AWS pago,
-mesmo coberto por créditos, deve ser usado sem autorização prévia com o valor
-e a frequência informados.
+Quando o subdomínio estiver delegado:
 
-## Recursos esperados
+```sh
+pulumi config set autokeep:appOrigin https://autokeep.negoci.online --stack prod
+pulumi config set autokeep:customDomainEnabled true --stack prod
+pulumi preview --diff
+```
 
-| Stack | DynamoDB | Lambda | Região |
-| --- | --- | --- | --- |
-| `dev` | `autokeep-dev` | `autokeep-api-dev` | `us-east-1` |
-| `prod` | `autokeep-prod` | `autokeep-api-prod` | `us-east-1` |
+Aguarde a validação do certificado e a distribuição CloudFront concluir. Teste
+HTTPS, DNS, `/api/health`, login e gravação antes de remover o deployment Vercel.
 
-As roles IAM existentes permanecem fora do gerenciamento deste projeto.
-As tabelas usam capacidade provisionada existente de 5 RCU/5 WCU, TTL `ttl`,
-sem PITR e chave AWS-owned. A Lambda existente usa Node.js 24.x, handler
-`index.handler`, 256 MB, timeout 15 s e armazenamento temporário de 512 MB.
+## Recursos preservados
+
+As roles IAM existentes permanecem fora do gerenciamento deste projeto. As
+tabelas usam 5 RCU/5 WCU cada, TTL `ttl`, sem PITR e chave AWS-owned. A Lambda
+usa Node.js 24.x, handler `index.handler`, 256 MB, timeout 15 s e armazenamento
+temporário de 512 MB. Com `hostingEnabled` ligado, o Pulumi publica o ZIP gerado
+por `npm run build:lambda` e atualiza somente `APP_ORIGIN` e
+`DYNAMODB_TABLE`, preservando as outras variáveis existentes como secreto.
+
+O bucket, CloudFront, API Gateway, integração e permissões de invocação usam
+`protect` e `retainOnDelete`. Não use `pulumi destroy` para desligar a
+hospedagem; revise remoções recurso a recurso e custos de retenção primeiro.

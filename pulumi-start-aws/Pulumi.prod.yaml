@@ -4,3 +4,6 @@ config:
   autokeep:tableName: autokeep-prod
   autokeep:functionName: autokeep-api-prod
   autokeep:roleArn: arn:aws:iam::672791231338:role/autokeep-api-prod
+  autokeep:hostedZoneId: Z034110231W3QV3DHBMS
+  autokeep:hostingEnabled: false
+  autokeep:customDomainEnabled: false

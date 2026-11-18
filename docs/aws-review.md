@@ -35,7 +35,7 @@ de todas as regiões e serviços da conta.
 | CloudFront                                      | Sem distribuições na lista global.                                                                                                                                           |
 | S3                                              | Sem buckets de uso geral na lista de todas as regiões.                                                                                                                       |
 | RDS                                             | Zero instâncias, clusters e snapshots no painel us-east-1.                                                                                                                   |
-| Route 53                                        | Zero hosted zones. O dashboard de registro de domínio apresentou erro; não foi possível confirmar por ele se há domínios registrados.                                        |
+| Route 53                                        | Hosted zone pública `autokeep.negoci.online` criada em 18/11/2026 na conta 672791231338. Apenas NS e SOA; delegação no domínio pai e registros da aplicação pendentes. O dashboard de registro de domínio não confirmou domínios registrados. |
 
 ## Validação da aplicação publicada
 
@@ -49,19 +49,20 @@ Não foram feitos testes de carga nem reproduzidas senhas, cookies ou chaves.
 
 ## DNS e próxima configuração
 
-Não criar hosted zone sem um domínio ou subdomínio de propriedade do usuário
-e sem saber quem administra sua delegação. Foi solicitado o nome do domínio e
-o registrador. O hostname gratuito atual da Vercel não exige uma zona Route 53.
-
-Se houver domínio próprio: obter da hospedagem os valores exatos de registros
-e verificação, preservar registros de email e configurar a origem da API para
-o hostname final. Não inventar endereços IP ou trocar nameservers sem conferir
-a delegação existente.
+A zona pública `autokeep.negoci.online` foi criada em 18/11/2026 após autorização
+do usuário. ID `Z034110231W3QV3DHBMS`; nameservers `ns-1293.awsdns-33.org`,
+`ns-203.awsdns-25.com`, `ns-622.awsdns-13.net` e `ns-1563.awsdns-03.co.uk`.
+Ela contém somente os registros NS e SOA padrão. O administrador de
+`negoci.online` precisa delegar o subdomínio com um registro NS para que a zona
+AWS responda publicamente. Os registros A/AAAA/CNAME para a aplicação dependem
+de decidir onde o frontend e a API serão servidos.
 
 A hosted zone pública Route 53 tem preço base de US$ 0,50/mês para as primeiras
-25 zonas, mais consultas cobradas conforme tipo e volume. Registro de domínio
-é outra cobrança e não é coberto por créditos promocionais. Nenhuma zona ou
-domínio foi criado; qualquer opção paga depende da autorização solicitada.
+25 zonas, mais consultas cobradas conforme tipo e volume. O console de créditos
+indicou que Route 53 é elegível ao crédito Free Tier ativo; o crédito pode
+compensar essa cobrança enquanto houver saldo e validade. Créditos não são um
+limite de gastos. Registro de domínio é uma cobrança separada; nenhum domínio
+foi registrado nesta ação.
 
 Fontes oficiais de preços:
 
@@ -139,3 +140,33 @@ consequência automática dessa constatação.
 
 Nenhum deployment, secret, domínio ou configuração Vercel foi alterado. A
 refatoração e o suporte Codespaces locais ainda não substituíram esse deploy.
+
+## Preparação para hospedagem exclusivamente na AWS — 18/11/2026
+
+A console de Billing consultada nesta data mostrou plano Free, US$ 140,00 em
+créditos ativos, uso estimado de US$ 0,00 e fim do plano em 23/03/2027. O resumo
+informava que créditos cobrem o plano gratuito e que o acesso termina quando o
+plano vencer ou os créditos acabarem. Não havia orçamento configurado. Um
+orçamento cria alertas, mas não é limite rígido de consumo.
+
+No código local, a stack `prod` agora oferece uma opção de hospedagem protegida:
+S3 privado com OAC, CloudFront e rewrite SPA, API Gateway HTTP `$default` e
+integração payload 2.0 para `autokeep-api-prod`. Por padrão,
+`autokeep:hostingEnabled` e `autokeep:customDomainEnabled` são falsos. Nenhum
+desses recursos foi criado. A ativação requer revisar preview e custo, e
+atualizar `APP_ORIGIN` da Lambda para a origem servida na CloudFront.
+
+O hostname CloudFront permite testar sem a delegação do professor. O certificado
+ACM e os aliases `autokeep.negoci.online` só serão ativados após a delegação NS;
+a hosted zone ainda contém somente NS/SOA. A Vercel continua publicada até
+login, escrita, cookies e `/api/health` serem validados pela AWS.
+
+Estimativa de uso do artefato atual `dist/web`: 564 KiB em 18 objetos. A
+armazenagem mensal desse conteúdo no S3 Standard em us-east-1 é aproximadamente
+US$ 0,000013, além de operações S3, API Gateway e execução Lambda conforme o
+tráfego. CloudFront tem franquia mensal de 1 TB, 10 milhões de requisições e
+2 milhões de invocações da CloudFront Function. API Gateway HTTP tem franquia de
+1 milhão de chamadas mensais por até 12 meses para clientes elegíveis; o preço
+publicado de entrada após a franquia é US$ 1 por milhão de chamadas, mais
+transferência de dados. O custo real não tem teto automático. A migração segue
+sem provisionamento até a aprovação do custo da etapa.

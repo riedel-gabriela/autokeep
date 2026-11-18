@@ -8,7 +8,8 @@ execFileSync('node_modules/.bin/rolldown', [
   'lambda/index.ts',
   '--platform=node',
   '--format=cjs',
-  '--file=dist/lambda/index.cjs', '--no-codeSplitting',
+  '--file=dist/lambda/index.js',
+  '--no-codeSplitting',
 ]);
-execFileSync('zip', ['-q', '-j', 'dist/autokeep-lambda.zip', `${output}/index.cjs`]);
+execFileSync('zip', ['-q', '-j', 'dist/autokeep-lambda.zip', `${output}/index.js`]);
 console.log('Pacote Lambda: dist/autokeep-lambda.zip');
