@@ -15,3 +15,4 @@ docs/config.json
 .vercel
 .aws-sam/
 samconfig.toml
+sam/*.local.json

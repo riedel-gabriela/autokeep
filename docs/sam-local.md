@@ -74,10 +74,27 @@ Consultar `/api/session` sem login deve retornar 401, não uma sessão válida.
 - `scripts/sam-local.mjs` envia credenciais fictícias ao SAM e remove referências
   a perfis/tokens reais somente do ambiente do subprocesso.
 
-O template mantém `SEED_DEMO=false`: banco vazio não possui contas para login.
-Neste primeiro passo, valide saúde e acesso não autenticado. Dados de exemplo,
-cadastro e testes de negócio locais são a próxima etapa; não use senhas da Vercel
-esperando que existam nesse banco independente.
+O template mantém `SEED_DEMO=false`: antes dos testes o banco não possui contas.
+Para gerar fixtures isoladas e testar login, sessões, veículos e permissões:
+
+```powershell
+npm run sam:test:integration
+```
+
+Execute com banco e API SAM iniciados. A cada execução, o script cria três
+usuários fictícios (ADMIN, DRIVER e ADMIN de outra organização), dois espaços
+com IDs novos e uma senha aleatória. Os dados são gravados somente em
+`autokeep-local` e preservados para inspeção, sem sobrescrever fixtures de outras
+execuções. Não use credenciais ou senhas da Vercel nesse ambiente.
+
+- `sam/fixtures.local.json`: contas, IDs e senha da última execução, ignorados pelo Git.
+- `sam/integration-results.local.json`: relatório dos cenários, também ignorado.
+- O teste de expiração altera exclusivamente a sessão criada para seu motorista
+  fictício; logout revoga a sessão do administrador de teste.
+- Depois da suíte, é necessário fazer login novamente para inspeção manual;
+  os cookies usados pelos testes não são disponibilizados como credenciais.
+
+Veja [testes-api-local.md](testes-api-local.md) para cenários e limites de cobertura.
 
 Não altere DYNAMODB_ENDPOINT para apontar à nuvem nesse fluxo de testes. Não execute
 `sam deploy` ou `sam sync`: este template tem endpoint local e não é a definição

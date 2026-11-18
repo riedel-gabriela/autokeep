@@ -86,6 +86,10 @@ npm run sam:local
 
 Em outro terminal, consulte `http://127.0.0.1:3000/api/health`.
 Esse ambiente é separado do MySQL e usa um banco de testes inicialmente vazio.
+Com a API em execução, `npm run sam:test:integration` cria contas fictícias e
+valida login, sessões, veículos e permissões. Consulte os
+[cenários de teste](docs/testes-api-local.md); senhas/resultados locais ficam
+fora do Git.
 
 Para usar editor, TypeScript e compilação no host:
 
@@ -178,10 +182,11 @@ referência/importação de recursos existentes e `preview`. O script
 `scripts/configure-infra.ps1` configura uma stack após autenticação, sem aplicar
 recursos. `pulumi-start-aws/` permanece apenas como exemplo histórico.
 
-O pacote da API para AWS Lambda pode ser gerado localmente com
-`npm run build:lambda`. O arquivo fica em `dist/autokeep-lambda.zip`, com
-handler `index.handler` para Node.js 24.x. A Lambda ainda não foi criada nem
-associada ao site: a publicação atual continua usando a função da Vercel.
+O pacote da API para AWS Lambda é gerado com `npm run build:lambda` em
+`dist/autokeep-lambda.zip`, com handler `index.handler` para Node.js 24.x.
+A [API dev foi publicada pelo Pulumi](docs/api-dev-publicada.md), com endpoint
+HTTP e role limitada à tabela autokeep-dev. O site da Vercel não foi reconfigurado
+e continua com sua integração anterior. Produção permanece sem essa Lambda.
 
 Consulte [as decisões e a cobertura dos requisitos](docs/implementation.md).
 

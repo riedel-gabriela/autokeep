@@ -1,14 +1,11 @@
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { build } from 'esbuild';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { zipSync } from 'fflate';
 
-const output = 'dist/lambda';
-mkdirSync(output, { recursive: true });
-rmSync('dist/autokeep-lambda.zip', { force: true });
-execFileSync('node_modules/.bin/rolldown', [
-  'lambda/index.ts',
-  '--platform=node',
-  '--format=cjs',
-  '--file=dist/lambda/index.cjs',
-]);
-execFileSync('zip', ['-q', '-j', 'dist/autokeep-lambda.zip', `${output}/index.cjs`]);
-console.log('Pacote Lambda: dist/autokeep-lambda.zip');
+mkdirSync('dist/lambda', { recursive: true });
+await build({
+  entryPoints: ['lambda/index.ts'], bundle: true, platform: 'node',
+  target: 'node24', format: 'cjs', outfile: 'dist/lambda/index.cjs',
+});
+writeFileSync('dist/autokeep-lambda.zip', zipSync({ 'index.cjs': readFileSync('dist/lambda/index.cjs') }));
+console.log('Pacote Lambda: dist/autokeep-lambda.zip (index.cjs, Node.js 24)');

@@ -11,7 +11,7 @@ Esta é a pasta oficial de IaC. `pulumi-start-aws/` é um exemplo histórico e n
 - Tabelas gerenciadas e zonas criadas são protegidas pelo Pulumi. Excluir exige revisão explícita de proteção.
 - Zona Route 53 pública nova por ambiente, ou referência a uma zona existente via `hostedZoneId`.
 - Registro TXT `_autokeep` identifica projeto/ambiente. CNAME `app` é criado somente com um `siteTarget` real informado pela hospedagem.
-- Não registra/compra domínio, não altera zona pai em outra conta e não cria Lambda, certificado ou CDN nesta etapa.
+- Não registra/compra domínio nem altera zona pai em outra conta. Lambda/API Gateway estão disponíveis somente em dev via `enableApi=true`; certificado personalizado e CDN continuam pendentes.
 
 `preview`/`up` reais exigem autenticação AWS/Pulumi, conta correta e domínio autorizado. Testes com mocks não comprovam deploy, permissões ou delegação DNS.
 
@@ -99,6 +99,7 @@ Após alterar o domínio público, a configuração `APP_ORIGIN` da aplicação 
 | `aws:profile` | Perfil local opcional; não usar nome de perfil inexistente em CI |
 | `autokeep:accountId` | Conta AWS permitida; obrigatório |
 | `autokeep:enableDns` | false para somente banco; padrão true quando ausente |
+| `autokeep:enableApi` | true habilita a API exclusivamente em dev; padrão false; exige npm run build:lambda |
 | `autokeep:domainName` | Domínio/subdomínio do ambiente; obrigatório somente com DNS ativado |
 | `autokeep:tableMode` | reference, create ou import |
 | `autokeep:tableName` | Nome deve terminar em -dev ou -prod conforme stack |
@@ -138,6 +139,10 @@ Uma zona nova não funciona publicamente até que seus nameservers sejam delegad
 Se usar `hostedZoneId` de zona já delegada, crie os registros nela. Não sobrescrevemos registros existentes automaticamente: conflitos precisam de revisão/importação.
 
 ## 7. Evidências para concluir a sprint
+
+Para build, permissões e verificação da API dev, consulte
+[api-dev-publicada.md](../docs/api-dev-publicada.md). Publicar a API não altera
+automaticamente o frontend Vercel nem habilita login sem contas no banco dev.
 
 ```powershell
 pulumi -C infra stack ls

@@ -1,6 +1,9 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import { settings } from './settings';
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
+import { createDevelopmentApi } from './api';
 
 const config = new pulumi.Config();
 const environment = pulumi.getStack();
@@ -25,6 +28,8 @@ const provider = new aws.Provider('aws', {
   allowedAccountIds: [options.accountId],
 });
 const resourceOptions = { provider, protect: true };
+const enableApi = config.getBoolean('enableApi') ?? false;
+if (enableApi && environment !== 'dev') throw new Error('enableApi deve permanecer desativado em prod nesta etapa.');
 
 const table = options.tableMode === 'reference'
   ? aws.dynamodb.Table.get('data', options.tableName, undefined, { provider })
@@ -80,6 +85,18 @@ const siteRecord = verifiedZoneId && options.siteTarget && options.applicationDo
   records: [options.siteTarget],
 }, { provider }) : undefined;
 
+const apiArtifact = path.resolve(__dirname, '../dist/lambda/index.cjs');
+if (enableApi && !existsSync(apiArtifact)) throw new Error('Compile a API na raiz com npm run build:lambda antes do preview/up.');
+const developmentApi = enableApi ? createDevelopmentApi({
+  environment, accountId: options.accountId, region,
+  tableArn: table.arn, tableName: table.name, provider,
+  code: new pulumi.asset.AssetArchive({ 'index.cjs': new pulumi.asset.FileAsset(apiArtifact) }),
+}) : undefined;
+
+export const apiEndpoint = developmentApi?.endpoint ?? null;
+export const apiFunctionName = developmentApi?.functionName ?? null;
+export const apiRoleArn = developmentApi?.roleArn ?? null;
+export const apiLogGroupName = developmentApi?.logGroupName ?? null;
 export const stackEnvironment = environment;
 export const awsAccountId = options.accountId;
 export const awsRegion = region;

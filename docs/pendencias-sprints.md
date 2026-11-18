@@ -83,13 +83,13 @@ Existe implementação da API e geração do pacote Lambda. O README informa que
 ### Tarefas
 
 - [x] **S3-01 — Adicionar template e configuração SAM:** `template.yaml`, compilação esbuild e guia [sam-local.md](sam-local.md); validação e build SAM aprovados em 18/11/2026.
-- [ ] **S3-02 — Preparar dados e eventos de teste locais:** evento de saúde em `sam/events/health.json` e smoke tests implementados; dados de negócio, contas de teste e cenários completos ainda pendentes. Seed desativado por padrão.
+- [x] **S3-02 — Preparar dados e eventos de teste locais:** fixtures isoladas ADMIN/DRIVER e de outra organização, evento de saúde e suíte `sam:test:integration`; 19 cenários aprovados em 18/11/2026. Seed de demonstração continua desativado; testes preparam suas próprias contas.
 - [x] **S3-03 — Definir o banco usado pelos testes SAM:** DynamoDB em Compose separado, tabela autokeep-local com pk/sk e credenciais fictícias; conexão pela Lambda local confirmada em 18/11/2026.
-- [ ] **S3-04 — Publicar a API em Lambda:** configurar runtime, handler, variáveis, memória e timeout.
-- [ ] **S3-05 — Configurar a role da Lambda:** conceder acesso apenas aos recursos necessários.
+- [x] **S3-04 — Publicar a API em Lambda:** autokeep-dev-api publicada e Active; runtime, handler, variáveis, memória e timeout confirmados. Escopo desta entrega: dev, sem API em prod.
+- [x] **S3-05 — Configurar a role da Lambda:** política limitada à tabela autokeep-dev e logs próprios; simulação IAM confirmou negação em autokeep-prod.
 - [ ] **S3-06 — Validar o DynamoDB publicado:** conferir tabela, chaves, permissões e isolamento de ambientes.
 - [ ] **S3-07 — Demonstrar persistência:** cadastrar, consultar e alterar dados pela API publicada.
-- [ ] **S3-08 — Registrar evidências:** documentar comandos de execução local, chamadas HTTP e logs da Lambda.
+- [x] **S3-08 — Registrar evidências:** parte local em [testes-api-local.md](testes-api-local.md) e publicação, chamadas HTTP e instruções de logs em [api-dev-publicada.md](api-dev-publicada.md). Fluxos de negócio com gravação na AWS permanecem em S3-07.
 
 ### Critério de conclusão
 
@@ -105,8 +105,8 @@ A publicação documentada usa Vercel. Essa configuração, isoladamente, não c
 
 ### Tarefas
 
-- [ ] **S4-01 — Criar o API Gateway:** definir as rotas necessárias à aplicação.
-- [ ] **S4-02 — Integrar API Gateway e Lambda:** configurar invocação, encaminhamento de requisições e respostas.
+- [x] **S4-01 — Criar o API Gateway:** HTTP API dev com rota proxy /api/{proxy+} publicada.
+- [x] **S4-02 — Integrar API Gateway e Lambda:** integração payload 2.0 e permissão restrita; chamadas reais de saúde e autenticação negativa aprovadas em dev.
 - [ ] **S4-03 — Integrar o frontend à API AWS:** garantir que o site utilize o backend escolhido para a entrega.
 - [ ] **S4-04 — Configurar a CDN:** definir origem e regras de cache; respostas autenticadas não devem ser compartilhadas entre usuários.
 - [ ] **S4-05 — Configurar certificado HTTPS:** emitir e validar o certificado e associá-lo ao domínio.
@@ -199,6 +199,7 @@ Ao concluir uma tarefa, marcar a caixa e registrar a evidência correspondente: 
 | S2-03 | `npm run check --prefix infra` e `npm test --prefix infra`: compilação sem erros e três testes locais aprovados | 16/11/2026 — mocks, sem nuvem |
 | S2-08 | infra/README.md; script PowerShell com sintaxe validada e execução simulada, incluindo bloqueio de conta incorreta | 16/11/2026 — sem autenticação real |
 | S3-01 e S3-03 | SAM CLI 1.173.0: validate --lint e build; npm run sam:test confirmou health 200, sessão ausente 401 e origem inválida 403 no Docker | 18/11/2026 — teste local real |
+| S3-02 | `npm run sam:test:integration`: 19 cenários, zero falhas; correção do cadastro indevido por DRIVER e build TypeScript/frontend aprovados | 18/11/2026 — SAM/DynamoDB local |
 
 Verificados links locais dos documentos centrais, fechamento de blocos Markdown,
 referências internas de componentes OpenAPI e correspondência dos métodos/caminhos

@@ -197,7 +197,7 @@ export function createApp() {
   api.get(`${org}/dashboard`, async (_req, res) =>
     res.json({ vehicles: await visibleVehicles(res.locals.organizationId, res.locals.user.id) }),
   );
-  api.post(`${org}/vehicles`, async (req, res) => {
+  api.post(`${org}/vehicles`, admin, async (req, res) => {
     const input = createVehicleSchema.parse(req.body);
     const id = randomUUID(),
       now = new Date(),

@@ -32,7 +32,11 @@ Os arquivos de configuração não contêm chaves AWS. A autenticação permanec
 
 O DNS está desativado nas duas stacks: nenhum domínio foi registrado e nenhuma zona ou registro Route 53 foi criado. Os avisos de outputs de DNS indefinidos durante o deploy são esperados nesse modo e não indicam falha na criação das tabelas.
 
-Lambda, API Gateway, frontend na AWS, certificados, e-mail e CI/CD não foram provisionados nesta etapa. O site Vercel não foi reconfigurado para utilizar os novos bancos. Também não foi feito teste de leitura/gravação pela aplicação: a validação atual é de infraestrutura.
+Atualização de 18/11/2026: [Lambda e API Gateway dev foram publicados](api-dev-publicada.md),
+com saúde confirmada usando a role de execução. A tabela prod permanece sem API.
+Frontend na AWS, certificados personalizados, e-mail e CI/CD ainda não foram
+provisionados. O site Vercel não foi reconfigurado e não foram criados dados de
+negócio nos bancos AWS pelos testes desta publicação.
 
 ## Conferir posteriormente
 
