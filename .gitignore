@@ -7,7 +7,11 @@ dist/
 .DS_Store
 .pulumi/
 Pulumi.*.yaml
+!infra/Pulumi.dev.yaml
+!infra/Pulumi.prod.yaml
 tmp/
 coverage/
 docs/config.json
 .vercel
+.aws-sam/
+samconfig.toml

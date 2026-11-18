@@ -1,5 +1,9 @@
  # AWS TypeScript Pulumi Template
 
+ > Exemplo histórico. A infraestrutura oficial do AutoKeep está em
+ > [infra/README.md](../infra/README.md). Não aplique este template para criar
+ > as stacks do projeto: ele cria apenas um bucket de demonstração.
+
  A minimal Pulumi template for provisioning AWS infrastructure using TypeScript. This template creates an Amazon S3 bucket and exports its name.
 
  ## Prerequisites

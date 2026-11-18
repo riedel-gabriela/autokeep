@@ -1,5 +1,11 @@
 # Implementação local — 0.1.0
 
+> Revisão documental da sprint 1 em 16/11/2026: consulte [requisitos.md](requisitos.md),
+> [architecture.md](architecture.md), [casos-de-uso.md](casos-de-uso.md) e
+> [contratos-api.md](contratos-api.md) para a distinção atual entre MySQL local,
+> DynamoDB na nuvem e infraestrutura AWS planejada. As funcionalidades descritas
+> como locais abaixo não devem ser presumidas na publicação.
+
 ## Decisões desta etapa
 
 - **MySQL 8.0 local:** relações entre organizações, pessoas, veículos,
@@ -85,10 +91,12 @@ estão implementados.
 ## API e contrato
 
 Os recursos principais mantêm os caminhos de `docs/openapi.yaml`.
-As extensões locais incluem `/api/auth/login`, `/api/auth/logout`,
+As rotas atuais incluem `/api/auth/login`, `/api/auth/logout`,
 `/api/auth/register-invited`, `/api/session`, detalhes/histórico de veículo,
-auditoria e notificações. O contrato original descreve Cognito; use
-`docs/openapi.local.yaml` para o contrato da implementação atual.
+auditoria e notificações. O contrato comum está em `docs/openapi.yaml`;
+`docs/openapi.local.yaml` detalha o MySQL e `docs/openapi.legacy.yaml` preserva
+a proposta anterior de Cognito. As diferenças de implementação são descritas
+em `docs/contratos-api.md`, incluindo notificações ainda provisórias na nuvem.
 
 ## Caminho para AWS
 

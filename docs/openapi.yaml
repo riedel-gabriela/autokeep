@@ -1,46 +1,28 @@
 openapi: 3.1.0
 info:
-  title: AutoKeep API
+  title: AutoKeep — API atual
   version: 0.1.0
-  description: API para monitoramento de manutenção veicular e gestão de frotas.
+  description: |
+    Contrato das rotas comuns MySQL e DynamoDB. Sessões HttpOnly; escritas exigem Origin
+    igual a APP_ORIGIN e Content-Type application/json, inclusive DELETE.
+    Datas em ISO 8601, UTC. Diferenças entre backends em contratos-api.md.
+    Histórico Cognito/JWT em openapi.legacy.yaml. E-mail real e worker remoto pendentes.
 servers:
   - url: /api
+    description: Mesmo domínio da interface publicada
+  - url: http://localhost:8080/api
+    description: Ambiente Docker local
 security:
-  - cognitoJwt: []
+  - localSession: []
 paths:
   /health:
     get:
-      operationId: health
       security: []
       responses:
-        "200":
-          description: Serviço disponível
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: string, const: ok }
-                required: [status]
-  /me/organizations:
-    get:
-      operationId: listMyOrganizations
-      responses:
-        "200":
-          description: Organizações do usuário autenticado
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  organizations:
-                    type: array
-                    items: { $ref: "#/components/schemas/Membership" }
-                required: [organizations]
-        "401": { $ref: "#/components/responses/Unauthorized" }
-  /organizations:
+        '200': { description: API e banco disponíveis }
+  /auth/login:
     post:
-      operationId: createOrganization
+      security: []
       requestBody:
         required: true
         content:
@@ -48,140 +30,25 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              properties:
-                companyName: { type: string, minLength: 1, maxLength: 100 }
-              required: [companyName]
-      responses:
-        "201": { description: Organização criada }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-  /invitations/accept:
-    post:
-      operationId: acceptInvitation
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                token: { type: string, minLength: 43, maxLength: 128 }
-              required: [token]
-      responses:
-        "200": { description: Convite aceito }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-  /organizations/{organizationId}/dashboard:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-    get:
-      operationId: getDashboard
-      responses:
-        "200":
-          description: Veículos visíveis ao usuário
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  vehicles:
-                    type: array
-                    items: { $ref: "#/components/schemas/Vehicle" }
-                required: [vehicles]
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /organizations/{organizationId}/vehicles:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-    post:
-      operationId: createVehicle
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateVehicle" }
-      responses:
-        "201":
-          description: Veículo criado
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Vehicle" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /organizations/{organizationId}/members:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-    get:
-      operationId: listMembers
-      responses:
-        "200":
-          description: Membros disponíveis para atribuição
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  members:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        userId: { type: string, format: uuid }
-                        email: { type: string, format: email }
-                        role: { type: string, enum: [ADMIN, DRIVER] }
-                      required: [userId, email, role]
-                required: [members]
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /organizations/{organizationId}/invitations:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-    post:
-      operationId: inviteDriver
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
+              required: [email, password]
               properties:
                 email: { type: string, format: email, maxLength: 254 }
-              required: [email]
+                password: { type: string, minLength: 1, maxLength: 72, description: No backend local também há limite de 72 bytes UTF-8 }
       responses:
-        "202": { description: Convite aceito para envio }
-        "403": { $ref: "#/components/responses/Forbidden" }
-  /organizations/{organizationId}/vehicles/{vehicleId}/odometer:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-      - $ref: "#/components/parameters/VehicleId"
+        '200':
+          description: Sessão criada; Set-Cookie autokeep_session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { description: Limite de tentativas; o formato de resposta pode diferir do erro de negócio }
+  /auth/logout:
     post:
-      operationId: updateOdometer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                odometer: { type: number, minimum: 0, maximum: 9999999.9 }
-                source: { type: string, enum: [MANUAL, OBD2] }
-                measuredAt: { type: string, format: date-time }
-              required: [odometer, source, measuredAt]
       responses:
-        "200":
-          description: Odômetro atualizado e previsão recalibrada
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Vehicle" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /organizations/{organizationId}/vehicles/{vehicleId}/oil-changes:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-      - $ref: "#/components/parameters/VehicleId"
+        '204': { description: Sessão revogada }
+  /auth/register-invited:
     post:
-      operationId: registerOilChange
+      security: []
       requestBody:
         required: true
         content:
@@ -189,77 +56,238 @@ paths:
             schema:
               type: object
               additionalProperties: false
+              required: [token, name, password]
               properties:
-                odometer: { type: number, minimum: 0, maximum: 9999999.9 }
-                changedAt: { type: string, format: date-time }
-                oilType: { $ref: "#/components/schemas/OilType" }
-              required: [odometer, changedAt, oilType]
+                token: { type: string, minLength: 43, maxLength: 43 }
+                name: { type: string, minLength: 2, maxLength: 100 }
+                password: { type: string, minLength: 12, maxLength: 72 }
       responses:
-        "200":
-          description: Troca registrada e relógios reiniciados
+        '201': { description: Conta criada como DRIVER usando o e-mail do convite }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /session:
+    get:
+      responses:
+        '200':
+          description: Identidade e espaços disponíveis
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Vehicle" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "409": { $ref: "#/components/responses/Conflict" }
-  /organizations/{organizationId}/vehicles/{vehicleId}/driver:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Error' }
+  /me/organizations:
+    get:
+      responses:
+        '200': { description: Objeto organizations com array de Membership }
+  /organizations:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [companyName]
+              properties:
+                companyName: { type: string, minLength: 2, maxLength: 100 }
+                kind: { type: string, enum: [PERSONAL, FLEET], default: FLEET }
+      responses:
+        '201': { description: Objeto id; o criador torna-se ADMIN }
+  /invitations/accept:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, minLength: 43, maxLength: 43 }
+      responses:
+        '200': { description: Convite aceito pela conta com e-mail correspondente }
+        '403': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/dashboard:
     parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-      - $ref: "#/components/parameters/VehicleId"
-    put:
-      operationId: assignDriver
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      responses:
+        '200':
+          description: Apenas veículos visíveis à identidade autenticada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicles: { type: array, items: { $ref: '#/components/schemas/Vehicle' } }
+  /organizations/{organizationId}/vehicles:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    post:
+      description: ADMIN; cria a leitura inicial e a manutenção informada.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                driverId:
-                  oneOf:
-                    - { type: string, format: uuid }
-                    - { type: "null" }
-              required: [driverId]
+            schema: { $ref: '#/components/schemas/CreateVehicle' }
       responses:
-        "200":
-          description: Vínculo atualizado sem alterar calibração ou manutenção
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Vehicle" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        '201': { description: Objeto id do veículo criado }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
   /organizations/{organizationId}/vehicles/{vehicleId}:
     parameters:
-      - $ref: "#/components/parameters/OrganizationId"
-      - $ref: "#/components/parameters/VehicleId"
-    delete:
-      operationId: archiveVehicle
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
       responses:
-        "200":
-          description: Veículo arquivado com histórico preservado
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
+        '200': { description: Objeto vehicle com detalhes e três últimas leituras }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      description: ADMIN; arquiva preservando todos os históricos.
+      responses:
+        '204': { description: Veículo arquivado }
+        '403': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/vehicles/{vehicleId}/odometer:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/VehicleId'
+    post:
+      description: ADMIN ou DRIVER atribuído. Rejeita datas futuras, regressão e ordem invertida.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [odometer, source, measuredAt]
+              properties:
+                odometer: { $ref: '#/components/schemas/Odometer' }
+                source: { type: string, enum: [MANUAL, OBD2] }
+                measuredAt: { type: string, format: date-time }
+      responses:
+        '201': { description: Leitura salva; média e previsão recalculadas na consulta }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/vehicles/{vehicleId}/oil-changes:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/VehicleId'
+    post:
+      description: ADMIN; valida coerência com leituras e manutenção anterior.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [odometer, changedAt, oilType]
+              properties:
+                odometer: { $ref: '#/components/schemas/Odometer' }
+                changedAt: { type: string, format: date-time }
+                oilType: { $ref: '#/components/schemas/OilType' }
+      responses:
+        '201': { description: Novo ciclo de óleo criado }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/vehicles/{vehicleId}/driver:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/VehicleId'
+    put:
+      description: ADMIN de FLEET; o alvo deve ser DRIVER da mesma organização.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [driverId]
+              properties:
+                driverId: { type: [string, 'null'], format: uuid }
+      responses:
+        '200': { description: Atribuição alterada sem mudar histórico ou calibração }
+        '400': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/vehicles/{vehicleId}/history:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      responses:
+        '200': { description: Objetos readings e oilChanges, até 100 de cada em ordem decrescente }
+  /organizations/{organizationId}/members:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      description: Apenas ADMIN.
+      responses:
+        '200': { description: Objeto members com id, name, email, role e assignedCount }
   /organizations/{organizationId}/members/{memberId}:
     parameters:
-      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: '#/components/parameters/OrganizationId'
       - name: memberId
         in: path
         required: true
         schema: { type: string, format: uuid }
     delete:
-      operationId: removeDriver
-      description: Exige que o motorista não esteja atribuído a nenhum veículo.
+      description: ADMIN; remove apenas DRIVER sem atribuições ativas.
       responses:
-        "200": { description: Motorista removido }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "409": { $ref: "#/components/responses/Conflict" }
+        '204': { description: Associação removida; acesso revogado }
+        '409': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/invitations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    post:
+      description: ADMIN de FLEET; localmente tenta envio no Mailpit; na nuvem apenas retorna link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '201': { description: Objeto invitationUrl e expiresInDays; token somente no fragmento }
+        '409': { $ref: '#/components/responses/Error' }
+  /organizations/{organizationId}/audit:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      description: Apenas ADMIN.
+      responses:
+        '200': { description: Objeto events com até 100 atividades recentes }
+  /organizations/{organizationId}/notifications:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      description: No MySQL lista avisos visíveis do usuário; no DynamoDB atual retorna lista vazia.
+      x-implementation-status:
+        mysql: implemented
+        dynamodb: placeholder
+      responses:
+        '200': { description: Objeto notifications; lista vazia na nuvem atual }
+  /organizations/{organizationId}/notifications/read:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationId'
+    post:
+      description: No MySQL persiste leitura; no DynamoDB apenas confirma sem persistir.
+      x-implementation-status:
+        mysql: implemented
+        dynamodb: placeholder
+      responses:
+        '200': { description: Objeto ok; persistência disponível apenas no MySQL }
 components:
   securitySchemes:
-    cognitoJwt:
-      type: http
-      scheme: bearer
-      bearerFormat: Cognito JWT
-      description: ID token emitido pelo User Pool Cognito da stack.
+    localSession:
+      type: apiKey
+      in: cookie
+      name: autokeep_session
   parameters:
     OrganizationId:
       name: organizationId
@@ -272,77 +300,96 @@ components:
       required: true
       schema: { type: string, format: uuid }
   responses:
-    BadRequest:
-      description: Entrada inválida
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-    Unauthorized:
-      description: Token ausente ou inválido
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-    Forbidden:
-      description: Usuário sem acesso ao recurso
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-    NotFound:
-      description: Recurso não encontrado
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-    Conflict:
-      description: Transição de negócio inválida
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Error:
+      description: Erro da solicitação
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string }
+              message: { type: string }
+              errorId: { type: string, format: uuid }
   schemas:
-    OilType:
-      type: string
-      enum: [MINERAL, SEMI_SYNTHETIC, FULL_SYNTHETIC]
+    Odometer: { type: number, minimum: 0, maximum: 9999999.9, multipleOf: 0.1 }
+    OilType: { type: string, enum: [MINERAL, SEMI_SYNTHETIC, SYNTHETIC] }
     Membership:
       type: object
+      required: [organizationId, companyName, kind, role]
       properties:
         organizationId: { type: string, format: uuid }
         companyName: { type: string }
+        kind: { type: string, enum: [PERSONAL, FLEET] }
         role: { type: string, enum: [ADMIN, DRIVER] }
-      required: [organizationId, companyName, role]
+    Session:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            email: { type: string, format: email }
+        memberships: { type: array, items: { $ref: '#/components/schemas/Membership' } }
     CreateVehicle:
       type: object
       additionalProperties: false
+      required:
+        [
+          name,
+          plate,
+          year,
+          oilType,
+          trackingMode,
+          currentOdometer,
+          lastOilChangeKm,
+          lastOilChangeDate,
+        ]
       properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
+        name: { type: string, minLength: 2, maxLength: 100 }
+        plate: { type: string, pattern: '^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$' }
+        year: { type: integer, minimum: 1950, description: No máximo o ano corrente mais um }
+        oilType: { $ref: '#/components/schemas/OilType' }
         trackingMode: { type: string, enum: [MANUAL, OBD2] }
-        oilType: { $ref: "#/components/schemas/OilType" }
-        currentOdometer: { type: number, minimum: 0, maximum: 9999999.9 }
-        lastOilChangeKm: { type: number, minimum: 0, maximum: 9999999.9 }
+        currentOdometer: { $ref: '#/components/schemas/Odometer' }
+        lastOilChangeKm: { $ref: '#/components/schemas/Odometer' }
         lastOilChangeDate: { type: string, format: date-time }
-      required: [name, trackingMode, oilType, currentOdometer, lastOilChangeKm, lastOilChangeDate]
     Vehicle:
-      allOf:
-        - $ref: "#/components/schemas/CreateVehicle"
-        - type: object
-          properties:
-            id: { type: string, format: uuid }
-            organizationId: { type: string, format: uuid }
-            avgDailyKm: { type: number, minimum: 0 }
-            assignedDriverId: { type: string, format: uuid }
-            lastUpdateDate: { type: string, format: date-time }
-            createdAt: { type: string, format: date-time }
-            historicalEntries:
-              type: array
-              maxItems: 3
-              items:
-                type: object
-                properties:
-                  date: { type: string, format: date-time }
-                  odometer: { type: number }
-                  source: { type: string, enum: [MANUAL, OBD2, PREDICTED] }
-                required: [date, odometer, source]
-            status:
-              type: object
-              properties:
-                level: { type: string, enum: [OK, WARNING, DUE] }
-                trigger: { oneOf: [{ type: string, enum: [DISTANCE, TIME] }, { type: "null" }] }
-                distanceRemainingKm: { type: number }
-                daysRemaining: { type: integer }
-                projectedDueDate: { oneOf: [{ type: string, format: date-time }, { type: "null" }] }
-              required: [level, trigger, distanceRemainingKm, daysRemaining, projectedDueDate]
-          required: [id, organizationId, avgDailyKm, lastUpdateDate, createdAt, historicalEntries, status]
-    Error:
       type: object
+      description: Campos de CreateVehicle, identidade, atribuição, leituras reais e estado calculado.
       properties:
-        code: { type: string }
-        errorId: { type: string, format: uuid }
-      required: [code, errorId]
+        id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
+        name: { type: string }
+        plate: { type: string }
+        year: { type: integer }
+        currentOdometer: { type: number }
+        predictedOdometer: { type: number }
+        avgDailyKm: { type: number }
+        calibrationDue: { type: boolean }
+        assignedDriverId: { type: [string, 'null'], format: uuid }
+        assignedDriverName: { type: [string, 'null'] }
+        lastUpdateDate: { type: string, format: date-time }
+        lastOilChangeDate: { type: string, format: date-time }
+        lastOilChangeKm: { type: number }
+        oilType: { $ref: '#/components/schemas/OilType' }
+        trackingMode: { type: string, enum: [MANUAL, OBD2] }
+        historicalEntries:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              odometer: { type: number }
+              source: { type: string, enum: [MANUAL, OBD2] }
+              measuredAt: { type: string, format: date-time }
+        status:
+          type: object
+          properties:
+            level: { type: string, enum: [OK, WARNING, DUE] }
+            trigger: { type: [string, 'null'], enum: [DISTANCE, TIME, null] }
+            distanceRemainingKm: { type: number }
+            daysRemaining: { type: integer }
+            projectedDueDate: { type: string, format: date-time }

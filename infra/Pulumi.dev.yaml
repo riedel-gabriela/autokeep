@@ -1,0 +1,7 @@
+config:
+  aws:region: us-east-1
+  autokeep:tableMode: create
+  autokeep:tableName: autokeep-dev
+  autokeep:enableDns: "false"
+  autokeep:accountId: "746931977047"
+  aws:profile: autokeep-dev

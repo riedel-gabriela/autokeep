@@ -71,6 +71,22 @@ Depois de alterar dependências, execute `npm run dev` novamente para reconstrui
 
 ## Compilar no host
 
+### Testar a API Lambda com SAM
+
+O [guia de SAM local](docs/sam-local.md) explica como compilar a API e executar
+o caminho DynamoDB localmente, sem usar as tabelas AWS:
+
+```powershell
+npm ci
+npm run sam:validate
+npm run sam:build
+npm run sam:db
+npm run sam:local
+```
+
+Em outro terminal, consulte `http://127.0.0.1:3000/api/health`.
+Esse ambiente é separado do MySQL e usa um banco de testes inicialmente vazio.
+
 Para usar editor, TypeScript e compilação no host:
 
 ```sh
@@ -82,6 +98,19 @@ O build gera a SPA em `dist/web`. A API local usa MySQL; a função da Vercel
 usa DynamoDB Standard na AWS.
 
 ## Estrutura
+
+### Documentação da sprint 1
+
+- [Requisitos, regras e situação por ambiente](docs/requisitos.md)
+- [Arquitetura atual e planejada, com diagramas](docs/architecture.md)
+- [Casos de uso e exceções](docs/casos-de-uso.md)
+- [Fluxogramas dos processos](docs/fluxogramas.md)
+- [Contrato HTTP atual](docs/openapi.yaml) e [diferenças entre backends](docs/contratos-api.md)
+- [Tarefas das sprints](docs/pendencias-sprints.md)
+
+O PDF de especificação e o [contrato Cognito anterior](docs/openapi.legacy.yaml)
+são referências históricas. A documentação atual distingue funcionalidades
+implementadas, limites e recursos AWS ainda planejados.
 
 ```text
 src/web/        interface React responsiva
@@ -130,8 +159,24 @@ avaliação periódica de notificações continua exclusiva do Docker local.
 ## AWS e Pulumi
 
 O ambiente publicado usa uma tabela DynamoDB da cota gratuita. A estrutura
-Pulumi de duas stacks isoladas, `dev` e `prod`, permanece como próximo passo;
-nenhuma segunda tabela foi criada para não duplicar capacidade agora.
+Pulumi de duas stacks isoladas, `dev` e `prod`, está definida em [`infra/`](infra/README.md).
+As stacks `dev` e `prod` e suas tabelas foram provisionadas em 18/11/2026 na conta
+AWS configurada localmente, com DNS desativado. Consulte as
+[evidências e limites](docs/infraestrutura-provisionada.md). São bancos novos;
+a publicação Vercel não foi reconfigurada e seus dados não foram migrados.
+
+Para verificar a infraestrutura sem acessar AWS ou Pulumi:
+
+```powershell
+npm ci --prefix infra
+npm run check --prefix infra
+npm test --prefix infra
+```
+
+O guia em `infra/README.md` explica perfis AWS, registro das stacks, domínio/DNS,
+referência/importação de recursos existentes e `preview`. O script
+`scripts/configure-infra.ps1` configura uma stack após autenticação, sem aplicar
+recursos. `pulumi-start-aws/` permanece apenas como exemplo histórico.
 
 O pacote da API para AWS Lambda pode ser gerado localmente com
 `npm run build:lambda`. O arquivo fica em `dist/autokeep-lambda.zip`, com

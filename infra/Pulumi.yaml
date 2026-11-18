@@ -1,0 +1,9 @@
+name: autokeep
+description: Infraestrutura AutoKeep — DynamoDB e DNS isolados por ambiente
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+config:
+  aws:region:
+    value: us-east-1

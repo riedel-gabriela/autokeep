@@ -5,7 +5,7 @@ info:
   description: |
     API da implementação MySQL. Sessões HttpOnly; escritas exigem Origin
     igual a APP_ORIGIN e Content-Type application/json, inclusive DELETE.
-    Datas em ISO 8601, UTC. API original Cognito em openapi.yaml.
+    Datas em ISO 8601, UTC. Contrato comum atual em openapi.yaml; histórico Cognito em openapi.legacy.yaml.
 servers:
   - url: http://localhost:8080/api
 security:
@@ -29,7 +29,7 @@ paths:
               required: [email, password]
               properties:
                 email: { type: string, format: email, maxLength: 254 }
-                password: { type: string, minLength: 1, maxLength: 72 }
+                password: { type: string, minLength: 1, maxLength: 72, description: No backend local também há limite de 72 bytes UTF-8 }
       responses:
         '200':
           description: Sessão criada; Set-Cookie autokeep_session
@@ -37,7 +37,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
         '401': { $ref: '#/components/responses/Error' }
-        '429': { $ref: '#/components/responses/Error' }
+        '429': { description: Limite de tentativas; o formato de resposta pode diferir do erro de negócio }
   /auth/logout:
     post:
       responses:

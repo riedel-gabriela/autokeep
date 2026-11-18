@@ -14,7 +14,13 @@
     "credentials": "node scripts/credentials.mjs",
     "build": "tsc --noEmit && vite build",
     "build:lambda": "node scripts/build-lambda.mjs",
-    "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml"
+    "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml",
+    "sam:validate": "sam validate --lint --template-file template.yaml --region us-east-1",
+    "sam:build": "sam build --template-file template.yaml",
+    "sam:db": "docker compose --file compose.sam.yaml up -d && node scripts/sam-db.mjs",
+    "sam:local": "node scripts/sam-local.mjs",
+    "sam:down": "docker compose --file compose.sam.yaml stop",
+    "sam:test": "node scripts/sam-smoke.mjs"
   },
   "dependencies": {
     "@fontsource/nunito-sans": "5.3.0",
@@ -36,6 +42,7 @@
     "@types/react": "19.1.10",
     "@types/react-dom": "19.1.9",
     "@vitejs/plugin-react": "6.1.1",
+    "esbuild": "0.28.2",
     "prettier": "3.9.9",
     "tsx": "4.20.5",
     "typescript": "5.9.2",
