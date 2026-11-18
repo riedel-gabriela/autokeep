@@ -1,0 +1,15 @@
+{
+  "name": "AutoKeep",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:5-24-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {},
+    "ghcr.io/devcontainers/features/aws-cli:1": {}
+  },
+  "forwardPorts": [8080, 8025],
+  "portsAttributes": {
+    "8080": { "label": "AutoKeep", "onAutoForward": "notify" },
+    "8025": { "label": "Mailpit — e-mails locais", "onAutoForward": "notify" }
+  },
+  "postCreateCommand": "npm ci",
+  "remoteUser": "node"
+}

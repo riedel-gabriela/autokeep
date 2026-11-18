@@ -1,5 +1,5 @@
 name: autokeep
-description: Referências seguras à infraestrutura AWS existente do AutoKeep
+description: Adoção protegida da infraestrutura AWS existente do AutoKeep
 runtime:
   name: nodejs
   options:

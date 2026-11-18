@@ -50,6 +50,7 @@ import {
 import { ActionDialog, type DialogState } from './forms.js';
 import { Login } from './Login.js';
 import { VehicleDetail } from './VehicleDetail.js';
+import { localDevelopment as local, mailpitUrl } from './environment.js';
 
 type Page = 'overview' | 'vehicles' | 'drivers' | 'history' | 'alerts';
 const actionLabels: Record<string, string> = {
@@ -64,7 +65,6 @@ const actionLabels: Record<string, string> = {
   ORGANIZATION_CREATED: 'Espaço criado',
 };
 const priority = { DUE: 0, WARNING: 1, OK: 2 };
-const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null),
@@ -306,7 +306,12 @@ export function App() {
             <span className="note-line" />
           </div>
           {local && (
-            <a className="support-link" href="http://localhost:8025" target="_blank" rel="noreferrer">
+            <a
+              className="support-link"
+              href={mailpitUrl ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+            >
               <Mail size={17} />
               Caixa de e-mails
               <ArrowUpRight size={14} />
@@ -840,10 +845,10 @@ export function App() {
                     <div className="panel-footnote">
                       <Mail size={16} />
                       Os e-mails deste ambiente ficam na{' '}
-                      <a href="http://localhost:8025" target="_blank" rel="noreferrer">
+                      <a href={mailpitUrl ?? undefined} target="_blank" rel="noreferrer">
                         caixa local
                       </a>
-                      . Os avisos são avaliados automaticamente a cada 15 minutos.
+                      . Os avisos são avaliados ao abrir esta caixa de notificações.
                     </div>
                   )}
                 </section>

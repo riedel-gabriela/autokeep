@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { get as httpGet } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 
 // Tests refuse remote/cloud databases, even if the shell contains AWS credentials.
 const endpoint = process.env.DYNAMODB_ENDPOINT || 'http://127.0.0.1:18000';
 const url = new URL(endpoint);
+const origin = process.env.AUTOKEEP_TEST_ORIGIN || 'http://localhost:8080';
 if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname))
   throw new Error('LOCAL_TEST_DATABASE_REQUIRED');
 Object.assign(process.env, {
@@ -17,7 +19,7 @@ Object.assign(process.env, {
   DYNAMODB_TABLE: `autokeep-test-${Date.now()}`,
   SEED_DEMO: 'true',
   DEMO_PASSWORD: 'local-integration-test-password',
-  APP_ORIGIN: 'http://localhost:8080',
+  APP_ORIGIN: origin,
 });
 delete process.env.AWS_SESSION_TOKEN;
 delete process.env.SMTP_HOST;
@@ -26,13 +28,32 @@ const { ensureLocalTable } = await import('../../src/server/dynamo.js');
 
 test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificações', async () => {
   await ensureLocalTable();
-  const server = createApp().listen(0, '127.0.0.1');
+  const { createServer: createViteServer } = await import('vite');
+  const vite = await createViteServer({
+    server: { middlewareMode: true, hmr: false, watch: null },
+  });
+  const app = createApp();
+  app.use(vite.middlewares);
+  const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const root = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
+  function pageForHost(host: string): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      httpGet(root.replace(/\/api$/, '/'), { headers: { host } }, (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => resolve({ status: response.statusCode!, body }));
+        response.on('error', reject);
+      }).on('error', reject);
+    });
+  }
   async function request(path: string, method = 'GET', body?: unknown, cookie = '') {
     return fetch(`${root}${path}`, {
       method,
-      headers: { origin: 'http://localhost:8080', 'content-type': 'application/json', cookie },
+      headers: { origin, 'content-type': 'application/json', cookie },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
@@ -42,12 +63,30 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
       password: process.env.DEMO_PASSWORD,
     });
     assert.equal(response.status, 200);
+    assert.equal(
+      /; Secure(?:;|$)/i.test(response.headers.get('set-cookie')!),
+      origin.startsWith('https:'),
+    );
     return {
       cookie: response.headers.get('set-cookie')!.split(';')[0],
       session: (await response.json()) as any,
     };
   }
   try {
+    const page = await pageForHost(new URL(origin).host);
+    assert.equal(page.status, 200);
+    assert.match(page.body, /AutoKeep/);
+    assert.equal((await pageForHost('untrusted.example')).status, 403);
+    assert.equal(
+      (
+        await fetch(`${root}/auth/login`, {
+          method: 'POST',
+          headers: { origin: 'https://untrusted.example', 'content-type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+      403,
+    );
     assert.equal((await request('/session')).status, 401);
     const admin = await login('marina@autokeep.local');
     const driver = await login('lucas@autokeep.local');
@@ -109,6 +148,7 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
     );
     assert.equal(invited.status, 201);
     const invitation = (await invited.json()) as any;
+    assert.ok(invitation.invitationUrl.startsWith(`${origin}/#invite=`));
     const token = invitation.invitationUrl.split('#invite=')[1];
     const registration = { token, name: 'Novo motorista', password: 'new-driver-test-password' };
     assert.equal((await request('/auth/register-invited', 'POST', registration)).status, 201);
@@ -116,6 +156,7 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
     assert.equal((await request('/auth/logout', 'POST', {}, driver.cookie)).status, 204);
     assert.equal((await request('/session', 'GET', undefined, driver.cookie)).status, 401);
   } finally {
+    await vite.close();
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

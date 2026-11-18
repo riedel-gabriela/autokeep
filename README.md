@@ -4,6 +4,18 @@ Aplicação em português para acompanhar veículos, frotas e trocas de óleo.
 React/TypeScript e uma única API Express usam DynamoDB em todos os ambientes:
 DynamoDB Local no Docker, tabelas existentes na AWS em dev/prod.
 
+## GitHub Codespaces
+
+O ambiente inclui configuração em `.devcontainer/devcontainer.json` para Node,
+Docker/Compose e AWS CLI. No Codespace existente, reconstrua o container e execute
+`npm run dev`; abra a porta 8080 em **Ports**, mantendo a visibilidade privada.
+A porta 8025 abre o Mailpit. As URLs/origem são ajustadas automaticamente.
+
+Os secrets AWS do Codespaces ficam reservados às operações explícitas no
+terminal. O Docker usa DynamoDB Local e credenciais fictícias, sem consumir AWS.
+Veja [o guia de Codespaces](docs/codespaces.md) para execução, secrets, stacks,
+diagnóstico e limites da validação.
+
 ## Desenvolvimento local
 
 Requisitos: Node.js 22.12+ e Docker com Compose em execução.
@@ -86,9 +98,11 @@ O endpoint `/api/health` do site e da Lambda prod foi validado na auditoria.
 Esta branch não foi publicada; o comportamento novo só passa à nuvem após deploy.
 
 A mesma `createApp()` atende servidor local, função Vercel (`api/index.ts`) e
-Lambda (`lambda/index.ts`). A rota publicada e o redirecionamento da Vercel devem
-ser conferidos antes de decidir qual entrada de API manter no deploy; não foram
-alterados automaticamente. Não há duas implementações de regras de negócio.
+Lambda (`lambda/index.ts`). No deploy atual, o painel Vercel confirmou uma
+função própria `/api/index` e o rewrite de `/api/*` para ela, a partir do commit
+`ac69017` da main. Esse caminho não usa as Function URLs AWS. As Lambdas foram
+preservadas para os ambientes e requisitos AWS; nada foi republicado nesta revisão.
+Não há duas implementações de regras de negócio na branch de refatoração.
 
 Variáveis cloud: `AWS_REGION`, `DYNAMODB_TABLE`, `APP_ORIGIN`, `SEED_DEMO` e,
 se o seed estiver ligado, `DEMO_PASSWORD` com pelo menos 16 caracteres. Lambda
@@ -98,8 +112,12 @@ existente mantém as tabelas e roles separadas; dev tem seed desativado.
 
 ## Infraestrutura e custos
 
-[pulumi-start-aws](pulumi-start-aws/README.md) agora referencia os recursos
-existentes em duas stacks, sem criar/recriar tabelas, Lambdas ou DNS.
+[pulumi-start-aws](pulumi-start-aws/README.md) suporta stacks chamadas `dev` e
+`prod` e referencia os recursos existentes, sem criar/recriar tabelas, Lambdas
+ou DNS. A consulta real ao backend encontrou somente `dev`, com zero recursos;
+`prod` não foi encontrada entre as stacks AutoKeep acessíveis. Os ambientes
+AWS existentes ainda não estão gerenciados por esse estado Pulumi. Veja
+[a validação no Codespaces](docs/codespaces-validation.md).
 Veja [a auditoria AWS](docs/aws-review.md) para o estado real, créditos e limites.
 Não execute provisionamento/deploy nem introduza consumo pago, mesmo coberto
 por créditos, sem primeiro informar recurso/valor e obter autorização explícita.

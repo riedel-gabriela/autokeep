@@ -15,10 +15,11 @@
     "build": "tsc --noEmit && vite build",
     "build:lambda": "node scripts/build-lambda.mjs",
     "format": "prettier --write src scripts package.json tsconfig.json vite.config.ts compose.yaml index.html README.md docs/implementation.md docs/openapi.local.yaml",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
     "test:integration": "node scripts/test-integration.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1171.0",
     "@fontsource/nunito-sans": "5.3.0",
     "bcryptjs": "3.0.3",
     "cookie": "2.0.1",

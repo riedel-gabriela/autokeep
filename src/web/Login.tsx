@@ -3,6 +3,7 @@ import { ArrowRight, Check, Eye, EyeOff, LoaderCircle, ShieldCheck, Wrench } fro
 import type { Session } from '../shared/domain.js';
 import { write } from './api.js';
 import { Brand, CarArt } from './components.js';
+import { localDevelopment as local } from './environment.js';
 
 export function Login({
   onLogin,
@@ -21,7 +22,6 @@ export function Login({
     [error, setError] = useState('');
   const [register, setRegister] = useState(Boolean(invitation)),
     [registered, setRegistered] = useState(false);
-  const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);

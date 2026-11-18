@@ -4,6 +4,7 @@ import type { Member, Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
 import { api, write } from './api.js';
 import { dayIso, Form, km, Modal, nowInput, todayInput } from './components.js';
+import { mailpitUrl } from './environment.js';
 
 export type DialogState =
   | { type: 'create' }
@@ -351,7 +352,12 @@ export function ActionDialog({
               <Mail size={28} />
             </span>
             <h3>Convite pronto!</h3>
-            <p>Válido por sete dias. O e-mail pode ser consultado na caixa local.</p>
+            <p>
+              Válido por sete dias.{' '}
+              {mailpitUrl
+                ? 'O e-mail pode ser consultado no Mailpit.'
+                : 'Compartilhe o link com o motorista.'}
+            </p>
             <label>
               Link do convite
               <input readOnly value={inviteUrl} />
@@ -370,9 +376,11 @@ export function ActionDialog({
               <Copy size={16} />
               {copied ? 'Link copiado' : 'Copiar link'}
             </button>
-            <a href="http://localhost:8025" target="_blank" rel="noreferrer" className="text-link">
-              Abrir caixa de e-mails
-            </a>
+            {mailpitUrl && (
+              <a href={mailpitUrl} target="_blank" rel="noreferrer" className="text-link">
+                Abrir caixa de e-mails
+              </a>
+            )}
           </div>
         ) : (
           <Form

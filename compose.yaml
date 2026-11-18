@@ -22,10 +22,12 @@ services:
       CHOKIDAR_USEPOLLING: 'true'
       CHOKIDAR_INTERVAL: 1000
       PORT: 8080
-      APP_ORIGIN: http://localhost:8080
+      APP_ORIGIN: ${AUTOKEEP_APP_ORIGIN:-http://localhost:8080}
+      VITE_MAILPIT_URL: ${AUTOKEEP_MAILPIT_URL:-http://localhost:8025}
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: local
       AWS_SECRET_ACCESS_KEY: local
+      AWS_SESSION_TOKEN: ''
       DYNAMODB_ENDPOINT: http://db:8000
       DYNAMODB_TABLE: autokeep-local
       DEMO_PASSWORD: ${DEMO_PASSWORD:?Execute npm run dev}

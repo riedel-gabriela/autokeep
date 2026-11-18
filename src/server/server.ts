@@ -13,7 +13,7 @@ async function main() {
   });
   app.use(vite.middlewares);
   server.listen(Number(process.env.PORT || 8080), '0.0.0.0', () =>
-    console.log('AutoKeep disponível em http://localhost:8080'),
+    console.log(`AutoKeep disponível em ${process.env.APP_ORIGIN || 'http://localhost:8080'}`),
   );
   async function shutdown() {
     server.close();

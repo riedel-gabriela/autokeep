@@ -25,12 +25,23 @@ try {
     .split(':')
     .pop();
   if (!/^\d+$/.test(port || '')) throw new Error('Porta do banco local indisponível.');
-  const test = spawnSync(
-    process.execPath,
-    ['--import', 'tsx', '--test', 'tests/integration/api.test.ts'],
-    { stdio: 'inherit', env: { ...process.env, DYNAMODB_ENDPOINT: `http://127.0.0.1:${port}` } },
-  );
-  process.exitCode = test.status ?? 1;
+  for (const origin of ['http://localhost:8080', 'https://codespaces-review-8080.app.github.dev']) {
+    console.log(`Testando origem: ${origin}`);
+    const test = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--test', 'tests/integration/api.test.ts'],
+      {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          DYNAMODB_ENDPOINT: `http://127.0.0.1:${port}`,
+          AUTOKEEP_TEST_ORIGIN: origin,
+        },
+      },
+    );
+    process.exitCode = test.status ?? 1;
+    if (process.exitCode !== 0) break;
+  }
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

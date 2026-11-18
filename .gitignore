@@ -7,6 +7,8 @@ dist/
 .DS_Store
 .pulumi/
 Pulumi.*.yaml
+!pulumi-start-aws/Pulumi.dev.yaml
+!pulumi-start-aws/Pulumi.prod.yaml
 tmp/
 coverage/
 docs/config.json

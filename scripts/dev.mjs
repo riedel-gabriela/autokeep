@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { parseEnv } from 'node:util';
+import { developmentUrls } from './development-urls.mjs';
+
+const { appOrigin, mailpitUrl } = developmentUrls();
 
 if (!existsSync('.env')) {
   const secret = () => randomBytes(24).toString('base64url');
@@ -11,11 +15,10 @@ if (!existsSync('.env')) {
   );
   console.log('Configuração local criada. Use npm run credentials para ver os acessos.');
 }
-for (const key of ['DEMO_PASSWORD']) {
-  if (!new RegExp(`^${key}=.+$`, 'm').test(readFileSync('.env', 'utf8'))) {
-    console.error(`Preencha ${key} no .env antes de continuar.`);
-    process.exit(1);
-  }
+const localEnv = parseEnv(readFileSync('.env', 'utf8'));
+if (!localEnv.DEMO_PASSWORD || localEnv.DEMO_PASSWORD.length < 16) {
+  console.error('Preencha DEMO_PASSWORD no .env com pelo menos 16 caracteres.');
+  process.exit(1);
 }
 let command = 'docker';
 let prefix = ['compose'];
@@ -29,8 +32,17 @@ if (spawnSync(command, [...prefix, 'version'], { stdio: 'ignore' }).status !== 0
 }
 const action = process.argv[2] === 'down' ? ['down'] : ['up', '--build'];
 if (action[0] === 'up')
-  console.log('AutoKeep: http://localhost:8080 • acessos: npm run credentials');
-const child = spawn(command, [...prefix, ...action], { stdio: 'inherit' });
+  console.log(`AutoKeep: ${appOrigin} • Mailpit: ${mailpitUrl} • acessos: npm run credentials`);
+const child = spawn(command, [...prefix, ...action], {
+  stdio: 'inherit',
+  env: {
+    ...process.env,
+    // A cloud DEMO_PASSWORD secret must not replace this workspace's local password.
+    DEMO_PASSWORD: localEnv.DEMO_PASSWORD,
+    AUTOKEEP_APP_ORIGIN: appOrigin,
+    AUTOKEEP_MAILPIT_URL: mailpitUrl,
+  },
+});
 child.on('error', () => {
   console.error('Não foi possível iniciar o Docker.');
   process.exitCode = 1;

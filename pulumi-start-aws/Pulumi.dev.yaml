@@ -1,0 +1,6 @@
+config:
+  aws:region: us-east-1
+  autokeep:accountId: '672791231338'
+  autokeep:tableName: autokeep-dev
+  autokeep:functionName: autokeep-api-dev
+  autokeep:roleArn: arn:aws:iam::672791231338:role/autokeep-api-dev

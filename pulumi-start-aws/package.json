@@ -2,12 +2,12 @@
   "name": "autokeep",
   "main": "index.ts",
   "devDependencies": {
-    "@types/node": "^18",
-    "typescript": "^5.0.0"
+    "@types/node": "18.19.130",
+    "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pulumi/aws": "^7.0.0",
-    "@pulumi/pulumi": "^3.113.0"
+    "@pulumi/aws": "7.48.0",
+    "@pulumi/pulumi": "3.264.0"
   },
   "scripts": {
     "check": "tsc --noEmit"
