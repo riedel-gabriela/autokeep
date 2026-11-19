@@ -15,12 +15,11 @@ provisionado por esta alteração.
 
 ## Domínio
 
-O endpoint `*.cloudfront.net` pode ser publicado e testado antes da delegação
-de `autokeep.negoci.online`. O HTTPS desse endpoint usa o certificado padrão
-da CloudFront. Para habilitar o domínio próprio, primeiro o administrador de
-`negoci.online` precisa delegar o subdomínio aos quatro nameservers da hosted
-zone. Então `customDomainEnabled` cria um certificado ACM com validação DNS,
-publica os registros Route 53 e adiciona o alias ao CloudFront.
+O professor já delegou `autokeep.negoci.online` aos quatro nameservers da
+hosted zone. Com `customDomainEnabled: true`, o Pulumi cria um certificado ACM
+com validação DNS, publica os registros Route 53 e adiciona o alias ao
+CloudFront. A propagação da delegação ainda precisa ser confirmada antes de
+considerar o HTTPS do domínio pronto.
 
 ## Custos e limite da conta
 

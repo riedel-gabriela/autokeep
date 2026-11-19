@@ -278,7 +278,7 @@ if (hostingEnabled) {
       action: 'lambda:InvokeFunction',
       function: api.name,
       principal: 'apigateway.amazonaws.com',
-      sourceArn: pulumi.interpolate`${httpApi.executionArn}/*/*`,
+      sourceArn: pulumi.interpolate`arn:aws:execute-api:us-east-1:${accountId}:${httpApi.id}/*/*`,
       statementId: 'AllowAutoKeepHttpApiInvoke',
     },
     { provider, protect: true, retainOnDelete: true },
@@ -289,7 +289,7 @@ if (hostingEnabled) {
     {
       name: 'autokeep-prod-spa-rewrite',
       runtime: 'cloudfront-js-2.0',
-      comment: 'Serve index.html for client-side application routes',
+      comment: 'Serve index.html for production client-side routes',
       publish: true,
       code: `function handler(event) {
   var request = event.request;
@@ -299,7 +299,6 @@ if (hostingEnabled) {
     },
     { provider, protect: true, retainOnDelete: true },
   );
-
   const customDomainEnabled = config.getBoolean('customDomainEnabled') === true;
   let validatedCertificateArn: pulumi.Input<string> | undefined;
   if (customDomainEnabled) {
@@ -352,7 +351,7 @@ if (hostingEnabled) {
           s3OriginConfig: { originAccessIdentity: '' },
         },
         {
-          domainName: httpApi.apiEndpoint.apply((url) => new URL(url).host),
+          domainName: pulumi.interpolate`${httpApi.id}.execute-api.us-east-1.amazonaws.com`,
           originId: 'http-api',
           customOriginConfig: {
             httpPort: 80,
@@ -369,7 +368,12 @@ if (hostingEnabled) {
         cachedMethods: ['GET', 'HEAD'],
         cachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
         compress: true,
-        functionAssociations: [{ eventType: 'viewer-request', functionArn: spaRewrite.arn }],
+        functionAssociations: [
+          {
+            eventType: 'viewer-request',
+            functionArn: spaRewrite.arn,
+          },
+        ],
       },
       orderedCacheBehaviors: [
         {
