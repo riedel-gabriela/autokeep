@@ -6,11 +6,13 @@ import { Brand, CarArt } from './components.js';
 import { localDevelopment as local } from './environment.js';
 
 const googleErrors: Record<string, string> = {
-  INVITATION_REQUIRED: 'Use um convite ou vincule o Google com o e-mail e a senha do AutoKeep.',
+  GOOGLE_ACCOUNT_UNLINKED:
+    'Crie uma conta com Google, vincule uma conta existente ou abra o convite da sua frota.',
   INVITATION_INVALID: 'Confira a validade do convite e use a conta Google do e-mail convidado.',
   OAUTH_LINK: 'Use a conta Google com o mesmo e-mail da sua conta AutoKeep.',
   OAUTH_EMAIL: 'Use uma conta Google com e-mail verificado.',
-  REGISTRATION_CONFLICT: 'A conta já existe ou o convite já foi usado.',
+  REGISTRATION_CONFLICT:
+    'Esse e-mail já tem conta ou o convite já foi usado. Se você já tem conta, entre ou vincule o Google.',
 };
 
 export function Login({
@@ -38,6 +40,9 @@ export function Login({
     });
   const [register, setRegister] = useState(Boolean(invitation)),
     [registered, setRegistered] = useState(false);
+  const [signup, setSignup] = useState(false);
+  const [workspaceKind, setWorkspaceKind] = useState<'PERSONAL' | 'FLEET'>('PERSONAL');
+  const [workspaceName, setWorkspaceName] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     void api<{ google: boolean }>('/auth/providers', { signal: controller.signal })
@@ -58,6 +63,7 @@ export function Login({
       const { url } = await write<{ url: string }>('/auth/google/start', {
         ...(invitation ? { invitation } : {}),
         ...(link ? { credentials: { email, password } } : {}),
+        ...(signup ? { workspace: { kind: workspaceKind, name: workspaceName } } : {}),
       });
       location.assign(url);
     } catch (e) {
@@ -129,11 +135,19 @@ export function Login({
             <ShieldCheck size={25} />
           </span>
           <span className="eyebrow">BEM-VINDO AO AUTOKEEP</span>
-          <h2>{register ? 'Você está convidado.' : 'Bom te ver por aqui.'}</h2>
+          <h2>
+            {signup
+              ? 'Crie seu espaço'
+              : register
+                ? 'Você está convidado.'
+                : 'Bom te ver por aqui.'}
+          </h2>
           <p>
-            {register
-              ? 'Crie sua conta para acompanhar os veículos da frota.'
-              : 'Entre para acompanhar o que move o seu dia.'}
+            {signup
+              ? 'Escolha como você quer usar o AutoKeep.'
+              : register
+                ? 'Crie sua conta para acompanhar os veículos da frota.'
+                : 'Entre para acompanhar o que move o seu dia.'}
           </p>
           {registered && (
             <div className="success-note">
@@ -155,82 +169,133 @@ export function Login({
               </button>
             </div>
           )}
-          <form onSubmit={submit}>
-            {register ? (
+          {signup ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void startGoogle();
+              }}
+            >
               <label>
-                Seu nome
+                Tipo de espaço
+                <select
+                  value={workspaceKind}
+                  onChange={(event) =>
+                    setWorkspaceKind(event.target.value === 'FLEET' ? 'FLEET' : 'PERSONAL')
+                  }
+                >
+                  <option value="PERSONAL">Meu carro</option>
+                  <option value="FLEET">Gestão de frota</option>
+                </select>
+              </label>
+              <label>
+                {workspaceKind === 'FLEET' ? 'Nome da frota' : 'Nome da garagem'}
                 <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  value={workspaceName}
+                  onChange={(event) => setWorkspaceName(event.target.value)}
+                  required
                   minLength={2}
                   maxLength={100}
-                  required
-                  autoComplete="name"
-                  placeholder="Como podemos te chamar?"
                 />
               </label>
-            ) : (
-              <label>
-                E-mail
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="username"
-                  required
-                  maxLength={254}
-                />
-              </label>
-            )}
-            <label>
-              Senha
-              <div className="password-input">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={register ? 'new-password' : 'current-password'}
-                  minLength={register ? 12 : 1}
-                  maxLength={72}
-                  placeholder={register ? 'Pelo menos 12 caracteres' : 'Sua senha de acesso'}
-                  required
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </label>
-            {error && (
-              <div className="form-error" role="alert">
-                {error}
-              </div>
-            )}
-            <button className="button primary login-submit" disabled={busy}>
-              {busy ? (
-                <LoaderCircle className="spin" size={18} />
-              ) : (
-                <>
-                  {register ? 'Criar minha conta' : 'Entrar na minha conta'}
-                  <ArrowRight size={18} />
-                </>
+              {error && (
+                <div className="form-error" role="alert">
+                  {error}
+                </div>
               )}
-            </button>
-            {googleEnabled && !register && (
+              <button className="button primary login-submit" disabled={busy}>
+                Criar conta com Google
+              </button>
               <button
                 className="button secondary"
-                type="submit"
-                value="link-google"
+                type="button"
                 disabled={busy}
+                onClick={() => {
+                  setSignup(false);
+                  setError('');
+                }}
               >
-                Vincular Google com e-mail e senha
+                Voltar para o login
               </button>
-            )}
-          </form>
-          {googleEnabled && (
+            </form>
+          ) : (
+            <form onSubmit={submit}>
+              {register ? (
+                <label>
+                  Seu nome
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    minLength={2}
+                    maxLength={100}
+                    required
+                    autoComplete="name"
+                    placeholder="Como podemos te chamar?"
+                  />
+                </label>
+              ) : (
+                <label>
+                  E-mail
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="username"
+                    required
+                    maxLength={254}
+                  />
+                </label>
+              )}
+              <label>
+                Senha
+                <div className="password-input">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete={register ? 'new-password' : 'current-password'}
+                    minLength={register ? 12 : 1}
+                    maxLength={72}
+                    placeholder={register ? 'Pelo menos 12 caracteres' : 'Sua senha de acesso'}
+                    required
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+              {error && (
+                <div className="form-error" role="alert">
+                  {error}
+                </div>
+              )}
+              <button className="button primary login-submit" disabled={busy}>
+                {busy ? (
+                  <LoaderCircle className="spin" size={18} />
+                ) : (
+                  <>
+                    {register ? 'Criar minha conta' : 'Entrar na minha conta'}
+                    <ArrowRight size={18} />
+                  </>
+                )}
+              </button>
+              {googleEnabled && !register && (
+                <button
+                  className="button secondary"
+                  type="submit"
+                  value="link-google"
+                  disabled={busy}
+                >
+                  Vincular Google com e-mail e senha
+                </button>
+              )}
+            </form>
+          )}
+          {googleEnabled && !signup && (
             <button
               className="button secondary"
               type="button"
@@ -240,7 +305,20 @@ export function Login({
               {register ? 'Aceitar convite com Google' : 'Entrar com Google'}
             </button>
           )}
-          {!register && (
+          {googleEnabled && !invitation && !signup && (
+            <button
+              className="button secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setSignup(true);
+                setError('');
+              }}
+            >
+              Criar uma conta
+            </button>
+          )}
+          {!register && !signup && (
             <div className="demo-accounts">
               <span className="eyebrow">EXPLORE OS PERFIS DE DEMONSTRAÇÃO</span>
               <div>

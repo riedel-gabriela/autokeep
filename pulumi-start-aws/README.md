@@ -135,8 +135,10 @@ das operações `GetItem`, `PutItem`, `DeleteItem` e `Query` na tabela
 
 Após aplicar o preview, confira a URL com `pulumi stack output googleCallbackUrl
 --stack dev`. Pelo domínio CloudFront, teste vincular uma conta existente com a
-senha do AutoKeep, sair e entrar com Google, e cadastrar outro usuário com um
-convite válido. Confira se `/api/session` retorna só os espaços desse usuário.
+senha do AutoKeep, sair e entrar com Google e criar uma conta com um espaço
+próprio em **Meu carro** ou **Gestão de frota**. Para testar o acesso de
+**Motorista** a uma frota existente, use um convite válido para outro usuário.
+Confira se `/api/session` retorna só os espaços e papéis desse usuário.
 
 ## Recursos preservados
 

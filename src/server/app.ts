@@ -38,12 +38,20 @@ const email = z
   .transform((v) => v.toLowerCase());
 const loginInput = z.object({ email, password }).strict();
 const invitationInput = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+const workspaceSignup = z
+  .object({
+    kind: z.enum(['PERSONAL', 'FLEET']),
+    name: z.string().trim().min(2).max(100),
+  })
+  .strict();
 const googleStartInput = z
   .object({
     invitation: invitationInput.shape.token.optional(),
     credentials: loginInput.optional(),
+    workspace: workspaceSignup.optional(),
   })
-  .strict();
+  .strict()
+  .refine(({ workspace, invitation, credentials }) => !workspace || (!invitation && !credentials));
 const oauthLifetime = 10 * 60_000;
 const oauthCookie = 'autokeep_google';
 const secureCookies = origin.startsWith('https://');
@@ -95,7 +103,7 @@ async function registerGoogleInvite(
   name: string,
   identityKey: string,
 ) {
-  check(token, 403, 'INVITATION_REQUIRED', 'Use um convite válido ou vincule uma conta existente.');
+  check(token, 403, 'GOOGLE_ACCOUNT_UNLINKED', 'Crie uma conta ou vincule uma conta existente.');
   const inviteKey = `INVITE#${digest(token)}`;
   const invite = await get(inviteKey, 'INVITE');
   check(
@@ -105,6 +113,25 @@ async function registerGoogleInvite(
     'Use a conta Google correspondente ao convite.',
   );
   return registerInvitedAccount(inviteKey, invite, name, { identityKey });
+}
+
+async function registerGoogleWorkspace(
+  workspace: z.infer<typeof workspaceSignup>,
+  address: string,
+  name: string,
+  identityKey: string,
+) {
+  const userId = randomUUID();
+  const organizationId = randomUUID();
+  await writeRegistration([
+    { pk: userKey(userId), sk: 'PROFILE', data: { id: userId, name, email: address } },
+    { pk: `EMAIL#${address}`, sk: 'USER', data: { userId } },
+    { pk: identityKey, sk: 'USER', data: { userId } },
+    { pk: orgKey(organizationId), sk: 'PROFILE', data: { id: organizationId, ...workspace } },
+    { pk: orgKey(organizationId), sk: `MEMBER#${userId}`, data: { userId, role: 'ADMIN' } },
+    { pk: userKey(userId), sk: `ORG#${organizationId}`, data: { organizationId, role: 'ADMIN' } },
+  ]);
+  return userId;
 }
 
 async function registerInvitedAccount(
@@ -328,7 +355,7 @@ export function createApp() {
   api.get('/auth/providers', (_req, res) => res.json({ google: googleEnabled }));
   if (googleEnabled) {
     api.post('/auth/google/start', loginLimiter, async (req, res) => {
-      const { credentials, invitation } = googleStartInput.parse(req.body);
+      const { credentials, invitation, workspace } = googleStartInput.parse(req.body);
       const user = credentials ? await authenticatePassword(credentials) : undefined;
       const config = await googleConfiguration();
       const state = oidc.randomState();
@@ -354,6 +381,7 @@ export function createApp() {
           verifier,
           expiresAt,
           invitation,
+          workspace: workspace && JSON.stringify(workspace),
           userId: user?.id,
           ttl: Math.floor(expiresAt / 1000),
         },
@@ -414,13 +442,16 @@ export function createApp() {
             if (!identity) await put(identityKey, 'USER', { userId: user.id }, true);
             userId = user.id;
           } else {
-            const name = typeof claims.name === 'string' && claims.name.trim();
-            userId = await registerGoogleInvite(
-              invitation,
-              address.data,
-              (name || address.data).slice(0, 100),
-              identityKey,
-            );
+            const givenName = typeof claims.name === 'string' && claims.name.trim();
+            const name = (givenName || address.data).slice(0, 100);
+            userId = attempt.workspace
+              ? await registerGoogleWorkspace(
+                  workspaceSignup.parse(JSON.parse(attempt.workspace)),
+                  address.data,
+                  name,
+                  identityKey,
+                )
+              : await registerGoogleInvite(invitation, address.data, name, identityKey);
             invitation = undefined;
           }
         } else {

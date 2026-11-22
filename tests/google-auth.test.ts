@@ -6,10 +6,12 @@ import test from 'node:test';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
-test('Google login rejects a mismatched state and a replay, then creates an AutoKeep session', async (t) => {
+test('Google login blocks state mismatch and replay, and public signup creates only a new workspace', async (t) => {
   const issuer = 'https://accounts.google.com';
   const clientId = 'autokeep-test';
   const items = new Map();
+  let linked = true;
+  let registration: any[] = [];
   t.mock.method(DynamoDBClient.prototype, 'send', async (command) => {
     const key = command.input.Item ?? command.input.Key;
     const id = key && JSON.stringify([key.pk.S, key.sk.S]);
@@ -18,7 +20,7 @@ test('Google login rejects a mismatched state and a replay, then creates an Auto
         items.set(id, command.input.Item);
         return {};
       case 'GetItemCommand':
-        if (key.pk.S.startsWith('OIDC#')) return { Item: { userId: { S: 'driver' } } };
+        if (linked && key.pk.S.startsWith('OIDC#')) return { Item: { userId: { S: 'driver' } } };
         if (key.pk.S === 'USER#driver') return { Item: { id: { S: 'driver' } } };
         return { Item: items.get(id) };
       case 'DeleteItemCommand': {
@@ -28,6 +30,10 @@ test('Google login rejects a mismatched state and a replay, then creates an Auto
       }
       case 'QueryCommand':
         return { Items: [] };
+      case 'TransactWriteItemsCommand':
+        registration = command.input.TransactItems.map(({ Put }: any) => Put.Item);
+        for (const item of registration) items.set(JSON.stringify([item.pk.S, item.sk.S]), item);
+        return {};
       default:
         throw new Error(`Unexpected command ${command.constructor.name}`);
     }
@@ -65,6 +71,8 @@ test('Google login rejects a mismatched state and a replay, then creates an Auto
         iss: issuer,
         aud: clientId,
         sub: 'google-driver',
+        email: 'user@example.com',
+        email_verified: true,
         nonce,
         iat: timestamp,
         exp: timestamp + 300,
@@ -87,27 +95,34 @@ test('Google login rejects a mismatched state and a replay, then creates an Auto
   t.after(() => server.close());
   await once(server, 'listening');
   const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
-  const started = await browserFetch(`${endpoint}/auth/google/start`, {
-    method: 'POST',
-    headers: { origin: process.env.APP_ORIGIN, 'content-type': 'application/json' },
-    body: '{}',
-  });
-  assert.equal(started.status, 200);
-  const temporaryCookie = started.headers.getSetCookie()[0];
-  assert.match(temporaryCookie, /SameSite=Lax/);
-  const authorization = new URL((await started.json()).url);
-  assert.equal(authorization.searchParams.get('code_challenge_method'), 'S256');
-  nonce = authorization.searchParams.get('nonce');
-  const state = authorization.searchParams.get('state');
-  const callback = (responseState: string) =>
-    browserFetch(`${endpoint}/auth/google/callback?code=test&state=${responseState}`, {
-      redirect: 'manual',
-      headers: { cookie: temporaryCookie.split(';')[0] },
+  const start = async (body = {}) => {
+    const started = await browserFetch(`${endpoint}/auth/google/start`, {
+      method: 'POST',
+      headers: { origin: process.env.APP_ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
     });
+    return started;
+  };
+  const begin = async (body = {}) => {
+    const started = await start(body);
+    assert.equal(started.status, 200);
+    const temporaryCookie = started.headers.getSetCookie()[0];
+    assert.match(temporaryCookie, /SameSite=Lax/);
+    const authorization = new URL((await started.json()).url);
+    assert.equal(authorization.searchParams.get('code_challenge_method'), 'S256');
+    nonce = authorization.searchParams.get('nonce');
+    const state = authorization.searchParams.get('state');
+    return (responseState = state) =>
+      browserFetch(`${endpoint}/auth/google/callback?code=test&state=${responseState}`, {
+        redirect: 'manual',
+        headers: { cookie: temporaryCookie.split(';')[0] },
+      });
+  };
+  const callback = await begin();
   const mismatch = await callback('wrong-state');
   assert.equal(mismatch.headers.get('location'), '/?googleError=OAUTH_STATE');
   assert.equal(exchanges, 0);
-  const success = await callback(state!);
+  const success = await callback();
   assert.equal(success.headers.get('location'), '/');
   const sessionCookie = success.headers
     .getSetCookie()
@@ -117,7 +132,26 @@ test('Google login rejects a mismatched state and a replay, then creates an Auto
     headers: { cookie: sessionCookie!.split(';')[0] },
   });
   assert.equal((await session.json()).user.id, 'driver');
-  const replay = await callback(state!);
+  const replay = await callback();
   assert.equal(replay.headers.get('location'), '/?googleError=OAUTH_STATE');
   assert.equal(exchanges, 1);
+
+  linked = false;
+  const unlinked = await begin();
+  assert.equal((await unlinked()).headers.get('location'), '/?googleError=GOOGLE_ACCOUNT_UNLINKED');
+  assert.equal(registration.length, 0);
+  const invalid = await start({ workspace: { kind: 'DRIVER', name: 'Frota de terceiros' } });
+  assert.equal(invalid.status, 400);
+  const signup = await begin({ workspace: { kind: 'FLEET', name: 'Minha frota' } });
+  assert.equal((await signup()).headers.get('location'), '/');
+  const organization = registration.find(
+    (item) => item.pk.S.startsWith('ORG#') && item.sk.S === 'PROFILE',
+  );
+  assert.equal(organization?.kind.S, 'FLEET');
+  assert.equal(organization?.name.S, 'Minha frota');
+  const memberships = registration.filter((item) => item.role);
+  assert.equal(memberships.length, 2);
+  assert.ok(memberships.every((item) => item.role.S === 'ADMIN'));
+  assert.equal(memberships[0].pk.S, organization.pk.S);
+  assert.equal(memberships[1].sk.S, organization.pk.S);
 });
