@@ -1,9 +1,17 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowRight, Check, Eye, EyeOff, LoaderCircle, ShieldCheck, Wrench } from 'lucide-react';
 import type { Session } from '../shared/domain.js';
-import { write } from './api.js';
+import { api, write } from './api.js';
 import { Brand, CarArt } from './components.js';
 import { localDevelopment as local } from './environment.js';
+
+const googleErrors: Record<string, string> = {
+  INVITATION_REQUIRED: 'Use um convite ou vincule o Google com o e-mail e a senha do AutoKeep.',
+  INVITATION_INVALID: 'Confira a validade do convite e use a conta Google do e-mail convidado.',
+  OAUTH_LINK: 'Use a conta Google com o mesmo e-mail da sua conta AutoKeep.',
+  OAUTH_EMAIL: 'Use uma conta Google com e-mail verificado.',
+  REGISTRATION_CONFLICT: 'A conta já existe ou o convite já foi usado.',
+};
 
 export function Login({
   onLogin,
@@ -19,11 +27,51 @@ export function Login({
     [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
+    [googleEnabled, setGoogleEnabled] = useState(false),
+    [error, setError] = useState(() => {
+      const code = new URLSearchParams(location.search).get('googleError');
+      return code
+        ? Object.hasOwn(googleErrors, code)
+          ? googleErrors[code]
+          : 'Não foi possível entrar com Google. Tente novamente.'
+        : '';
+    });
   const [register, setRegister] = useState(Boolean(invitation)),
     [registered, setRegistered] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api<{ google: boolean }>('/auth/providers', { signal: controller.signal })
+      .then(({ google }) => setGoogleEnabled(google))
+      .catch(() => {});
+    const url = new URL(location.href);
+    if (url.searchParams.has('googleError')) {
+      url.searchParams.delete('googleError');
+      history.replaceState(history.state, '', url);
+    }
+    return () => controller.abort();
+  }, []);
+
+  async function startGoogle(link = false) {
+    setBusy(true);
+    setError('');
+    try {
+      const { url } = await write<{ url: string }>('/auth/google/start', {
+        ...(invitation ? { invitation } : {}),
+        ...(link ? { credentials: { email, password } } : {}),
+      });
+      location.assign(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível iniciar o login com Google.');
+      setBusy(false);
+    }
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if ((e.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'link-google') {
+      await startGoogle(true);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -171,7 +219,27 @@ export function Login({
                 </>
               )}
             </button>
+            {googleEnabled && !register && (
+              <button
+                className="button secondary"
+                type="submit"
+                value="link-google"
+                disabled={busy}
+              >
+                Vincular Google com e-mail e senha
+              </button>
+            )}
           </form>
+          {googleEnabled && (
+            <button
+              className="button secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => void startGoogle()}
+            >
+              {register ? 'Aceitar convite com Google' : 'Entrar com Google'}
+            </button>
+          )}
           {!register && (
             <div className="demo-accounts">
               <span className="eyebrow">EXPLORE OS PERFIS DE DEMONSTRAÇÃO</span>

@@ -1,12 +1,22 @@
-import express, { type RequestHandler, type ErrorRequestHandler } from 'express';
+import express, { type RequestHandler, type ErrorRequestHandler, type Response } from 'express';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { compare, hash } from 'bcryptjs';
 import { parseCookie } from 'cookie';
 import { rateLimit } from 'express-rate-limit';
 import { z, ZodError } from 'zod';
+import * as oidc from 'openid-client';
 import { enrichVehicle, type Membership, type Vehicle } from '../shared/domain.js';
 import { AppError, check } from './errors.js';
-import { get, put, query, remove, isConditionalFailure } from './dynamo.js';
+import {
+  get,
+  put,
+  query,
+  remove,
+  take,
+  writeRegistration,
+  isConditionalFailure,
+} from './dynamo.js';
+import { googleCallbackPath, googleConfiguration, googleEnabled } from './google.js';
 import { sendLocalMail } from './mail.js';
 import { createVehicleSchema, oilChangeSchema, readingSchema, uuid } from './validation.js';
 
@@ -28,10 +38,102 @@ const email = z
   .transform((v) => v.toLowerCase());
 const loginInput = z.object({ email, password }).strict();
 const invitationInput = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+const googleStartInput = z
+  .object({
+    invitation: invitationInput.shape.token.optional(),
+    credentials: loginInput.optional(),
+  })
+  .strict();
+const oauthLifetime = 10 * 60_000;
+const oauthCookie = 'autokeep_google';
+const secureCookies = origin.startsWith('https://');
+const oauthCookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  secure: secureCookies,
+  path: googleCallbackPath,
+};
 
 async function userByEmail(address: string) {
   const pointer = await get(`EMAIL#${address}`, 'USER');
   return pointer ? get(userKey(pointer.userId), 'PROFILE') : undefined;
+}
+
+async function authenticatePassword(input: z.infer<typeof loginInput>) {
+  const user = await userByEmail(input.email);
+  const valid = await compare(
+    input.password,
+    user?.passwordHash || '$2b$12$ylKop6NrdzvBR57FKgpFAus24xX1XJWbn90TliAu3Ln84h35jNAwu',
+  );
+  check(user?.passwordHash && valid, 401, 'INVALID_CREDENTIALS', 'E-mail ou senha inválidos.');
+  return user!;
+}
+
+async function openSession(res: Response, userId: string) {
+  const memberships = await userMemberships(userId);
+  for (const membership of memberships) await audit(membership.organizationId, userId, 'LOGIN');
+  const token = randomBytes(32).toString('base64url');
+  const expiresAt = Date.now() + 12 * 60 * 60_000;
+  await put(`SESSION#${digest(token)}`, 'SESSION', {
+    userId,
+    expiresAt,
+    ttl: Math.floor(expiresAt / 1000),
+  });
+  res.cookie('autokeep_session', token, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: secureCookies,
+    maxAge: 12 * 60 * 60_000,
+    path: '/',
+  });
+  return memberships;
+}
+
+async function registerGoogleInvite(
+  token: string | undefined,
+  address: string,
+  name: string,
+  identityKey: string,
+) {
+  check(token, 403, 'INVITATION_REQUIRED', 'Use um convite válido ou vincule uma conta existente.');
+  const inviteKey = `INVITE#${digest(token)}`;
+  const invite = await get(inviteKey, 'INVITE');
+  check(
+    invite && !invite.acceptedAt && invite.expiresAt > Date.now() && invite.email === address,
+    403,
+    'INVITATION_INVALID',
+    'Use a conta Google correspondente ao convite.',
+  );
+  return registerInvitedAccount(inviteKey, invite, name, { identityKey });
+}
+
+async function registerInvitedAccount(
+  inviteKey: string,
+  invite: Record<string, any>,
+  name: string,
+  authentication: { identityKey: string } | { passwordHash: string },
+) {
+  const id = randomUUID();
+  const organizationId: string = invite.organizationId;
+  const profile = { id, name, email: invite.email };
+  await writeRegistration([
+    {
+      pk: userKey(id),
+      sk: 'PROFILE',
+      data:
+        'passwordHash' in authentication
+          ? { ...profile, passwordHash: authentication.passwordHash }
+          : profile,
+    },
+    { pk: `EMAIL#${invite.email}`, sk: 'USER', data: { userId: id } },
+    { pk: orgKey(organizationId), sk: `MEMBER#${id}`, data: { userId: id, role: 'DRIVER' } },
+    { pk: userKey(id), sk: `ORG#${organizationId}`, data: { organizationId, role: 'DRIVER' } },
+    ...('identityKey' in authentication
+      ? [{ pk: authentication.identityKey, sk: 'USER', data: { userId: id } }]
+      : []),
+    { pk: inviteKey, sk: 'INVITE', data: { ...invite, acceptedAt: now() }, unacceptedInvite: true },
+  ]);
+  return id;
 }
 
 async function userMemberships(id: string): Promise<Membership[]> {
@@ -219,35 +321,127 @@ export function createApp() {
     legacyHeaders: false,
   });
   api.post('/auth/login', loginLimiter, async (req, res) => {
-    const input = loginInput.parse(req.body);
-    const user = await userByEmail(input.email);
-    const valid = await compare(
-      input.password,
-      user?.passwordHash || '$2b$12$ylKop6NrdzvBR57FKgpFAus24xX1XJWbn90TliAu3Ln84h35jNAwu',
-    );
-    check(user && valid, 401, 'INVALID_CREDENTIALS', 'E-mail ou senha inválidos.');
-    const token = randomBytes(32).toString('base64url');
-    await put(`SESSION#${digest(token)}`, 'SESSION', {
-      userId: user.id,
-      expiresAt: Date.now() + 12 * 60 * 60_000,
-      ttl: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
-    });
-    res.cookie('autokeep_session', token, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: origin.startsWith('https://'),
-      maxAge: 12 * 60 * 60_000,
-      path: '/',
-    });
-    const memberships = await userMemberships(user.id);
-    for (const membership of memberships) await audit(membership.organizationId, user.id, 'LOGIN');
+    const user = await authenticatePassword(loginInput.parse(req.body));
+    const memberships = await openSession(res, user.id);
     res.json({ user: userPublic(user), memberships });
   });
+  api.get('/auth/providers', (_req, res) => res.json({ google: googleEnabled }));
+  if (googleEnabled) {
+    api.post('/auth/google/start', loginLimiter, async (req, res) => {
+      const { credentials, invitation } = googleStartInput.parse(req.body);
+      const user = credentials ? await authenticatePassword(credentials) : undefined;
+      const config = await googleConfiguration();
+      const state = oidc.randomState();
+      const nonce = oidc.randomNonce();
+      const verifier = oidc.randomPKCECodeVerifier();
+      const browserToken = randomBytes(32).toString('base64url');
+      const expiresAt = Date.now() + oauthLifetime;
+      const url = oidc.buildAuthorizationUrl(config, {
+        redirect_uri: new URL(googleCallbackPath, origin).href,
+        scope: 'openid email profile',
+        state,
+        nonce,
+        code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
+        code_challenge_method: 'S256',
+        ...(user ? { prompt: 'select_account' } : {}),
+      });
+      await put(
+        `OAUTH#${digest(browserToken)}`,
+        'GOOGLE',
+        {
+          state,
+          nonce,
+          verifier,
+          expiresAt,
+          invitation,
+          userId: user?.id,
+          ttl: Math.floor(expiresAt / 1000),
+        },
+        true,
+      );
+      res.cookie(oauthCookie, browserToken, { ...oauthCookieOptions, maxAge: oauthLifetime });
+      res.json({ url: url.href });
+    });
+    api.get('/auth/google/callback', async (req, res) => {
+      if (req.method !== 'GET') return void res.sendStatus(405);
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      let invitation: string | undefined;
+      try {
+        const browserToken = invitationInput.shape.token.safeParse(
+          parseCookie(req.headers.cookie || '')[oauthCookie],
+        );
+        check(browserToken.success, 400, 'OAUTH_STATE', 'Login expirado.');
+        const key = `OAUTH#${digest(browserToken.data)}`;
+        const pending = await get(key, 'GOOGLE');
+        check(
+          pending && pending.expiresAt > Date.now() && pending.state === req.query.state,
+          400,
+          'OAUTH_STATE',
+          'Login expirado.',
+        );
+        const attempt = await take(key, 'GOOGLE');
+        check(attempt, 400, 'OAUTH_STATE', 'Login expirado.');
+        res.clearCookie(oauthCookie, oauthCookieOptions);
+        invitation = attempt.invitation;
+        const callback = new URL(googleCallbackPath, origin);
+        callback.search = new URL(req.originalUrl, origin).search;
+        const tokens = await oidc.authorizationCodeGrant(await googleConfiguration(), callback, {
+          expectedState: attempt.state,
+          expectedNonce: attempt.nonce,
+          pkceCodeVerifier: attempt.verifier,
+        });
+        const claims = tokens.claims();
+        check(claims?.sub, 400, 'OAUTH_IDENTITY', 'Identidade Google inválida.');
+        const identityKey = `OIDC#${digest(JSON.stringify([claims.iss, claims.sub]))}`;
+        const identity = await get(identityKey, 'USER');
+        let userId: string;
+        if (attempt.userId || !identity) {
+          const address = email.safeParse(claims.email);
+          check(
+            claims.email_verified === true && address.success,
+            403,
+            'OAUTH_EMAIL',
+            'Use um e-mail Google verificado.',
+          );
+          if (attempt.userId) {
+            const user = await get(userKey(attempt.userId), 'PROFILE');
+            check(
+              user && user.email === address.data && (!identity || identity.userId === user.id),
+              403,
+              'OAUTH_LINK',
+              'Use a conta Google com o mesmo e-mail do AutoKeep.',
+            );
+            if (!identity) await put(identityKey, 'USER', { userId: user.id }, true);
+            userId = user.id;
+          } else {
+            const name = typeof claims.name === 'string' && claims.name.trim();
+            userId = await registerGoogleInvite(
+              invitation,
+              address.data,
+              (name || address.data).slice(0, 100),
+              identityKey,
+            );
+            invitation = undefined;
+          }
+        } else {
+          userId = identity.userId;
+        }
+        check(await get(userKey(userId), 'PROFILE'), 403, 'OAUTH_IDENTITY', 'Conta indisponível.');
+        await openSession(res, userId);
+        res.redirect(303, invitation ? `/#invite=${invitation}` : '/');
+      } catch (error) {
+        const code = error instanceof AppError ? error.code : 'OAUTH_FAILED';
+        console.error(JSON.stringify({ event: 'google_login_failed', code }));
+        res.redirect(303, `/?googleError=${code}${invitation ? `#invite=${invitation}` : ''}`);
+      }
+    });
+  }
   api.post('/auth/register-invited', loginLimiter, async (req, res) => {
     const input = invitationInput
       .extend({ name: z.string().trim().min(2).max(100), password: password.min(12) })
       .parse(req.body);
-    const invite = await get(`INVITE#${digest(input.token)}`, 'INVITE');
+    const inviteKey = `INVITE#${digest(input.token)}`;
+    const invite = await get(inviteKey, 'INVITE');
     check(
       invite && !invite.acceptedAt && invite.expiresAt > Date.now(),
       404,
@@ -260,11 +454,16 @@ export function createApp() {
       'ACCOUNT_EXISTS',
       'Este e-mail já tem conta. Entre para aceitar o convite.',
     );
+    const passwordHash = await hash(input.password, 12);
+    if (googleEnabled) {
+      await registerInvitedAccount(inviteKey, invite, input.name, { passwordHash });
+      return void res.status(201).json({ ok: true });
+    }
     const id = randomUUID();
     await put(
       userKey(id),
       'PROFILE',
-      { id, name: input.name, email: invite.email, passwordHash: await hash(input.password, 12) },
+      { id, name: input.name, email: invite.email, passwordHash },
       true,
     );
     await put(`EMAIL#${invite.email}`, 'USER', { userId: id }, true);
@@ -273,7 +472,7 @@ export function createApp() {
       organizationId: invite.organizationId,
       role: 'DRIVER',
     });
-    await put(`INVITE#${digest(input.token)}`, 'INVITE', { ...invite, acceptedAt: now() });
+    await put(inviteKey, 'INVITE', { ...invite, acceptedAt: now() });
     res.status(201).json({ ok: true });
   });
   api.use(async (req, res, next) => {
