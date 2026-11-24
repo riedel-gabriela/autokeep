@@ -14,6 +14,12 @@ const roleArn = config.require('roleArn');
 const hostingEnabled = config.getBoolean('hostingEnabled') === true;
 const googleClientId = stack === 'dev' ? config.get('googleClientId') : undefined;
 const googleSecretArn = stack === 'dev' ? config.get('googleClientSecretArn') : undefined;
+const pushEnabled = stack === 'dev' && config.getBoolean('pushEnabled') === true;
+if (pushEnabled && !hostingEnabled)
+  throw new Error('Ative hostingEnabled na stack dev para usar Web Push.');
+const pushPublicKey = pushEnabled ? config.require('pushPublicKey') : '';
+const pushPrivateKey = pushEnabled ? config.requireSecret('pushPrivateKey') : pulumi.output('');
+const pushSubject = pushEnabled ? config.require('pushSubject') : '';
 if (aws.config.region !== 'us-east-1') throw new Error('A região autorizada é us-east-1.');
 if (tableName !== `autokeep-${stack}` || functionName !== `autokeep-api-${stack}`)
   throw new Error('Os recursos devem corresponder à stack selecionada.');
@@ -95,17 +101,24 @@ if (googleClientId || googleSecretArn) {
   if (publicUrl.origin !== appOrigin || publicUrl.protocol !== 'https:')
     throw new Error('appOrigin do OAuth deve ser uma origem HTTPS sem caminho ou barra final.');
 }
-const preservedEnvironment = currentLambda?.environment.apply((environment) => ({
-  ...environment.variables,
-  DYNAMODB_TABLE: tableName,
-  APP_ORIGIN: appOrigin!,
-  ...(stack === 'dev'
-    ? {
-        GOOGLE_CLIENT_ID: googleClientId ?? '',
-        GOOGLE_CLIENT_SECRET_ARN: googleSecretArn ?? '',
-      }
-    : {}),
-}));
+const preservedEnvironment =
+  currentLambda &&
+  pulumi
+    .all([currentLambda.environment, pushPrivateKey])
+    .apply(([environment, vapidPrivateKey]) => ({
+      ...environment.variables,
+      DYNAMODB_TABLE: tableName,
+      APP_ORIGIN: appOrigin!,
+      ...(stack === 'dev'
+        ? {
+            GOOGLE_CLIENT_ID: googleClientId ?? '',
+            GOOGLE_CLIENT_SECRET_ARN: googleSecretArn ?? '',
+            PUSH_PUBLIC_KEY: pushPublicKey,
+            PUSH_PRIVATE_KEY: vapidPrivateKey,
+            PUSH_SUBJECT: pushSubject,
+          }
+        : {}),
+    }));
 
 if (hostingEnabled && !existsSync(lambdaCodePath)) {
   throw new Error('Execute npm run build:lambda antes de ativar hostingEnabled.');
@@ -120,7 +133,7 @@ const api = new aws.lambda.Function(
     runtime: 'nodejs24.x',
     handler: 'index.handler',
     memorySize: 256,
-    timeout: 15,
+    timeout: pushEnabled ? 60 : 15,
     architectures: ['x86_64'],
     ephemeralStorage: { size: 512 },
     loggingConfig: { logFormat: 'Text', logGroup: `/aws/lambda/${functionName}` },
@@ -176,6 +189,35 @@ if (googleSecretArn) {
       }),
     },
     { provider },
+  );
+}
+
+if (pushEnabled) {
+  const rule = new aws.cloudwatch.EventRule(
+    'maintenance-push',
+    {
+      name: 'autokeep-dev-maintenance-push',
+      scheduleExpression: 'rate(15 minutes)',
+    },
+    { provider },
+  );
+  const invoke = new aws.lambda.Permission(
+    'allow-maintenance-push',
+    {
+      action: 'lambda:InvokeFunction',
+      function: api.name,
+      principal: 'events.amazonaws.com',
+      sourceArn: rule.arn,
+    },
+    { provider },
+  );
+  new aws.cloudwatch.EventTarget(
+    'maintenance-push-target',
+    {
+      rule: rule.name,
+      arn: api.arn,
+    },
+    { provider, dependsOn: [invoke] },
   );
 }
 

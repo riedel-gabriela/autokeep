@@ -32,6 +32,9 @@ services:
       DYNAMODB_TABLE: autokeep-local
       DEMO_PASSWORD: ${DEMO_PASSWORD:?Execute npm run dev}
       SEED_DEMO: 'true'
+      PUSH_PUBLIC_KEY: ${PUSH_PUBLIC_KEY:-}
+      PUSH_PRIVATE_KEY: ${PUSH_PRIVATE_KEY:-}
+      PUSH_SUBJECT: ${PUSH_SUBJECT:-}
       SMTP_HOST: mail
       SMTP_PORT: 1025
     volumes:

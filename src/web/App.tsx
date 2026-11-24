@@ -35,6 +35,7 @@ import {
 import type { AuditEvent, Member, Notification, Session, Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
 import { api, ApiError, write } from './api.js';
+import { currentPushSubscription, PushSettings } from './PushSettings.js';
 import {
   Brand,
   CarArt,
@@ -70,7 +71,9 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null),
     [authLoading, setAuthLoading] = useState(true);
   const [orgId, setOrgId] = useState(''),
-    [page, setPage] = useState<Page>('overview'),
+    [page, setPage] = useState<Page>(() =>
+      new URLSearchParams(location.search).get('view') === 'alerts' ? 'alerts' : 'overview',
+    ),
     [mobileMenu, setMobileMenu] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]),
     [members, setMembers] = useState<Member[]>([]),
@@ -164,7 +167,9 @@ export function App() {
   }
   async function logout() {
     try {
-      await write('/auth/logout', {});
+      const subscription = await currentPushSubscription().catch(() => null);
+      await write('/auth/logout', { pushEndpoint: subscription?.endpoint });
+      await subscription?.unsubscribe().catch(() => {});
       setSession(null);
       setVehicles([]);
     } catch (e) {
@@ -815,6 +820,7 @@ export function App() {
                       )
                     }
                   />
+                  <PushSettings />
                   {notifications.length ? (
                     notifications.map((n) => (
                       <button

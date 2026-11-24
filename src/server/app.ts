@@ -12,10 +12,19 @@ import {
   put,
   query,
   remove,
+  removeOwned,
   take,
   writeRegistration,
   isConditionalFailure,
 } from './dynamo.js';
+import {
+  deliverMaintenancePush,
+  pushEndpoint,
+  pushPartition,
+  pushPublicKey,
+  pushSubscription,
+  subscriptionKey,
+} from './push.js';
 import { googleCallbackPath, googleConfiguration, googleEnabled } from './google.js';
 import { sendLocalMail } from './mail.js';
 import { createVehicleSchema, oilChangeSchema, readingSchema, uuid } from './validation.js';
@@ -225,6 +234,22 @@ async function presentCar(car: Record<string, any>): Promise<Vehicle> {
       measuredAt: r.measuredAt,
       source: r.source,
     })),
+  });
+}
+
+export async function runMaintenancePush() {
+  await deliverMaintenancePush(async (userId) => {
+    const vehicles: Vehicle[] = [];
+    for (const membership of await query(userKey(userId), 'ORG#')) {
+      const key = orgKey(membership.organizationId);
+      const access = await get(key, `MEMBER#${userId}`);
+      if (!access) continue;
+      for (const car of await query(key, 'CAR#')) {
+        if (!car.archivedAt && (access.role === 'ADMIN' || car.assignedDriverId === userId))
+          vehicles.push(await presentCar(car));
+      }
+    }
+    return vehicles;
   });
 }
 
@@ -538,12 +563,39 @@ export function createApp() {
       memberships: await userMemberships(res.locals.user.id),
     }),
   );
-  api.post('/auth/logout', async (_req, res) => {
+  api.post('/auth/logout', async (req, res) => {
     for (const membership of await userMemberships(res.locals.user.id)) {
       await audit(membership.organizationId, res.locals.user.id, 'LOGOUT');
     }
+    const endpoint = pushEndpoint.safeParse(req.body?.pushEndpoint);
+    if (endpoint.success)
+      await removeOwned(pushPartition, subscriptionKey(endpoint.data), res.locals.user.id);
     await remove(`SESSION#${res.locals.sessionHash}`, 'SESSION');
     res.clearCookie('autokeep_session', { path: '/', httpOnly: true, sameSite: 'strict' });
+    res.status(204).end();
+  });
+  api.get('/push/config', (_req, res) => res.json({ publicKey: pushPublicKey ?? null }));
+  api.post('/push/subscription', async (req, res) => {
+    check(pushPublicKey, 503, 'PUSH_DISABLED', 'Notificações push indisponíveis neste ambiente.');
+    const { endpoint, keys } = pushSubscription.parse(req.body);
+    const key = subscriptionKey(endpoint);
+    const userId = res.locals.user.id;
+    const existing = await get(pushPartition, key);
+    if (existing) {
+      check(
+        existing.userId === userId,
+        409,
+        'PUSH_ALREADY_LINKED',
+        'Este navegador está vinculado a outra conta.',
+      );
+    } else {
+      await put(pushPartition, key, { userId, endpoint, ...keys }, true);
+    }
+    res.status(204).end();
+  });
+  api.delete('/push/subscription', async (req, res) => {
+    const endpoint = pushEndpoint.parse(req.body?.endpoint);
+    await removeOwned(pushPartition, subscriptionKey(endpoint), res.locals.user.id);
     res.status(204).end();
   });
   api.get('/me/organizations', async (_req, res) =>

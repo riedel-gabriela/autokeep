@@ -33,8 +33,9 @@ e deduplicação de notificações e logout. Recusa endpoints cloud.
 ## Limites preservados
 
 Não há migração automática dos dados MySQL antigos; seu volume não é apagado.
-Não há OAuth/Cognito, push, email cloud, offline ou leitura Bluetooth OBD2.
-Sem scheduler cloud, notificações não são emitidas em background.
+OAuth com Google e Web Push podem ser habilitados na stack dev. O Web Push
+também pode ser habilitado no Docker local com chaves VAPID. Email cloud,
+offline e leitura Bluetooth OBD2 permanecem fora do escopo implementado.
 Operações multitem não são transacionais: disputas concorrentes exigem evolução
 específica. Latência abaixo de 200 ms não foi medida.
 

@@ -117,6 +117,26 @@ export async function take(pk: string, sk: string) {
   return decode(result.Attributes);
 }
 
+export async function claimDelivery(pk: string, sk: string, leaseUntil: number) {
+  await request('PutItem', {
+    Item: encode({ pk, sk, leaseUntil, ttl: Math.ceil(leaseUntil / 1000) }),
+    ConditionExpression: 'attribute_not_exists(pk) OR leaseUntil < :now',
+    ExpressionAttributeValues: { ':now': { N: String(Date.now()) } },
+  });
+}
+
+export async function removeOwned(pk: string, sk: string, userId: string) {
+  try {
+    await request('DeleteItem', {
+      Key: encode({ pk, sk }),
+      ConditionExpression: 'userId = :userId',
+      ExpressionAttributeValues: { ':userId': { S: userId } },
+    });
+  } catch (error) {
+    if (!isConditionalFailure(error)) throw error;
+  }
+}
+
 type RegistrationItem = {
   pk: string;
   sk: string;
@@ -198,7 +218,7 @@ export async function ensureLocalTable() {
       try {
         await request('DescribeTable', {});
       } catch (error) {
-        if ((error as { code?: string }).code !== 'ResourceNotFoundException') throw error;
+        if ((error as { name?: string }).name !== 'ResourceNotFoundException') throw error;
         try {
           await request('CreateTable', {
             AttributeDefinitions: [
@@ -212,7 +232,7 @@ export async function ensureLocalTable() {
             ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
           });
         } catch (createError) {
-          if ((createError as { code?: string }).code !== 'ResourceInUseException')
+          if ((createError as { name?: string }).name !== 'ResourceInUseException')
             throw createError;
         }
       }

@@ -140,6 +140,23 @@ próprio em **Meu carro** ou **Gestão de frota**. Para testar o acesso de
 **Motorista** a uma frota existente, use um convite válido para outro usuário.
 Confira se `/api/session` retorna só os espaços e papéis desse usuário.
 
+## Notificações push em dev
+
+Com a hospedagem de `dev` ativa, gere um par VAPID com
+`npx web-push generate-vapid-keys --json`. Configure na stack `dev`:
+
+- `autokeep:pushEnabled` com o valor `true`.
+- `autokeep:pushPublicKey` com a chave pública.
+- `autokeep:pushPrivateKey` com a chave privada, usando `pulumi config set --secret`.
+- `autokeep:pushSubject` com `mailto:` seguido de um e-mail de contato.
+
+Rode `npm run build` e `npm run build:lambda` na raiz e revise
+`pulumi preview --stack dev --diff`. A regra EventBridge invoca a Lambda a
+cada 15 minutos. A função precisa de saída HTTPS para os serviços de push dos
+navegadores. As inscrições e o histórico de entrega usam a tabela existente.
+Teste no domínio CloudFront em **Notificações**, com a permissão do navegador
+concedida e um veículo próximo da troca de óleo.
+
 ## Recursos preservados
 
 As roles IAM existentes permanecem fora do gerenciamento deste projeto. O

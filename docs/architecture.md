@@ -38,7 +38,11 @@ Notificações são calculadas sob demanda ao listar avisos; idempotência usa c
 por veículo/ciclo/nível e escrita condicional. Não existe agendador cloud ou
 avaliação em background. Marcação de leitura é persistida por destinatário.
 
-Email só usa Mailpit local. Não há SES, SNS, Web Push ou hardware OBD2 conectado.
+Email usa Mailpit local. O Web Push opcional usa assinaturas por navegador e
+reavalia as permissões da frota antes de enviar. Cada dispositivo recebe um
+aviso por nível de manutenção no ciclo da troca de óleo. O servidor local
+verifica os avisos a cada minuto e a stack dev pode usar EventBridge a cada
+15 minutos. SES, SNS e hardware OBD2 ficam fora desse fluxo.
 O SMTP local pode duplicar email se houver interrupção após envio e antes da
 confirmação no banco. Não é um transporte de produção.
 

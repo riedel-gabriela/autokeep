@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { dailyAverage, enrichVehicle, type Reading } from '../src/shared/domain.js';
+import { maintenanceNotice, pushEndpoint } from '../src/server/push.js';
 
 const now = new Date('2026-11-17T12:00:00Z');
 const reading = (day: number, odometer: number): Reading => ({
@@ -68,4 +69,37 @@ test('limites de óleo e calibração manual são independentes da atribuição'
       .calibrationDue,
     false,
   );
+});
+
+test('push diferencia vencimento por tempo e distância e mantém a identidade do aviso', () => {
+  const notice = (odometer: number, lastOilChangeDate = base.lastOilChangeDate) =>
+    maintenanceNotice(
+      enrichVehicle({ ...base, currentOdometer: odometer, lastOilChangeDate }, now),
+    );
+  assert.equal(notice(14000), undefined);
+  const warning = notice(14700);
+  assert.match(warning!.body, /faltam 300 km/);
+  assert.equal(notice(14800)?.id, warning!.id);
+  const distanceDue = notice(15000);
+  assert.notEqual(distanceDue?.id, warning!.id);
+  assert.match(distanceDue!.body, /limite de quilometragem atingido/);
+  const timeDue = notice(14000, '2025-11-17T12:00:00Z');
+  assert.match(timeDue!.body, /prazo atingido/);
+  assert.match(
+    notice(15000, '2025-11-17T12:00:00Z')!.body,
+    /quilometragem atingido e prazo atingido/,
+  );
+});
+
+test('push aceita somente endpoints HTTPS de provedores de navegador', () => {
+  assert.ok(pushEndpoint.safeParse('https://fcm.googleapis.com/fcm/send/subscription').success);
+  assert.ok(pushEndpoint.safeParse('https://web.push.apple.com/subscription').success);
+  for (const endpoint of [
+    'http://fcm.googleapis.com/push',
+    'https://fcm.googleapis.com@127.0.0.1/push',
+    'https://fcm.googleapis.com.example.com/push',
+    'https://fcm.googleapis.com:8080/push',
+  ]) {
+    assert.equal(pushEndpoint.safeParse(endpoint).success, false);
+  }
 });

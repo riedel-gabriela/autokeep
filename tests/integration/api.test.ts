@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
+import { createECDH, randomBytes } from 'node:crypto';
+import { EventEmitter, once } from 'node:events';
 import { get as httpGet } from 'node:http';
+import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
+import { generateVAPIDKeys } from 'web-push';
 
 // Tests refuse remote/cloud databases, even if the shell contains AWS credentials.
 const endpoint = process.env.DYNAMODB_ENDPOINT || 'http://127.0.0.1:18000';
@@ -10,6 +13,7 @@ const url = new URL(endpoint);
 const origin = process.env.AUTOKEEP_TEST_ORIGIN || 'http://localhost:8080';
 if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname))
   throw new Error('LOCAL_TEST_DATABASE_REQUIRED');
+const vapid = generateVAPIDKeys();
 Object.assign(process.env, {
   NODE_ENV: 'development',
   DYNAMODB_ENDPOINT: endpoint,
@@ -20,13 +24,16 @@ Object.assign(process.env, {
   SEED_DEMO: 'true',
   DEMO_PASSWORD: 'local-integration-test-password',
   APP_ORIGIN: origin,
+  PUSH_PUBLIC_KEY: vapid.publicKey,
+  PUSH_PRIVATE_KEY: vapid.privateKey,
+  PUSH_SUBJECT: 'mailto:push@example.com',
 });
 delete process.env.AWS_SESSION_TOKEN;
 delete process.env.SMTP_HOST;
-const { createApp } = await import('../../src/server/app.js');
+const { createApp, runMaintenancePush } = await import('../../src/server/app.js');
 const { ensureLocalTable } = await import('../../src/server/dynamo.js');
 
-test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificações', async () => {
+test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificações', async (t) => {
   await ensureLocalTable();
   const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({
@@ -103,6 +110,36 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
     assert.equal(fleet.vehicles.length, 1);
     const car = `${org}/vehicles/${fleet.vehicles[0].id}`;
     assert.equal((await request(`${car}/oil-changes`, 'POST', {}, driver.cookie)).status, 403);
+    const sent: string[] = [];
+    t.mock.method(https, 'request', (options, onResponse) => {
+      assert.equal(options.hostname, 'fcm.googleapis.com');
+      assert.equal(options.headers['Content-Encoding'], 'aes128gcm');
+      sent.push(options.path);
+      const response = Object.assign(new EventEmitter(), { statusCode: 201, headers: {} });
+      return Object.assign(new EventEmitter(), {
+        write: () => {},
+        end: () => {
+          onResponse(response);
+          response.emit('end');
+        },
+      });
+    });
+    const keys = {
+      p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
+      auth: randomBytes(16).toString('base64url'),
+    };
+    for (const [name, session] of [
+      ['admin', admin],
+      ['driver', driver],
+    ] as const) {
+      const endpoint = `https://fcm.googleapis.com/fcm/send/${name}`;
+      assert.equal(
+        (await request('/push/subscription', 'POST', { endpoint, keys }, session.cookie)).status,
+        204,
+      );
+    }
+    await runMaintenancePush();
+    sent.length = 0;
     const created = await request(
       `${org}/vehicles`,
       'POST',
@@ -120,6 +157,8 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
     );
     assert.equal(created.status, 201);
     const createdId = ((await created.json()) as any).id;
+    await Promise.all([runMaintenancePush(), runMaintenancePush()]);
+    assert.deepEqual(sent, ['/fcm/send/admin']);
     assert.equal(
       (await request(`${org}/vehicles/${createdId}`, 'GET', undefined, driver.cookie)).status,
       404,
