@@ -4,6 +4,7 @@ import type { Session } from '../shared/domain.js';
 import { api, write } from './api.js';
 import { Brand, CarArt } from './components.js';
 import { localDevelopment as local } from './environment.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 const googleErrors: Record<string, string> = {
   GOOGLE_ACCOUNT_UNLINKED:
@@ -127,6 +128,7 @@ export function Login({
         <footer>Mais controle na garagem. Mais confiança na estrada.</footer>
       </section>
       <section className="login-form-panel">
+        <ThemeToggle />
         <div className="mobile-brand">
           <Brand />
         </div>

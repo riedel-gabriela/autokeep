@@ -36,6 +36,7 @@ import type { AuditEvent, Member, Notification, Session, Vehicle } from '../shar
 import { OIL_LABELS } from '../shared/domain.js';
 import { api, ApiError, write } from './api.js';
 import { currentPushSubscription, PushSettings } from './PushSettings.js';
+import { ThemeToggle } from './ThemeToggle.js';
 import {
   Brand,
   CarArt,
@@ -366,6 +367,7 @@ export function App() {
               })}
             </span>
             <span className="topbar-divider" />
+            <ThemeToggle />
             <button
               className="icon-button notification-button"
               aria-label={`Notificações, ${unread} não lidas`}
