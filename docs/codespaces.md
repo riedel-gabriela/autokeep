@@ -23,7 +23,8 @@ infraestrutura; não são necessários para executar ou testar a aplicação loc
 4. Abra a porta **8080** na aba **Ports**. A porta **8025** abre o Mailpit.
    Mantenha a visibilidade das duas portas **Private**. O banco não tem porta
    encaminhada. O backend local usa HTTP; a URL externa encaminhada usa HTTPS.
-5. Consulte os perfis/senha local com `npm run credentials`. Para parar,
+5. O login local preenche a senha de demonstração depois de carregar os dados
+   locais. Consulte os perfis/senha com `npm run credentials`. Para parar,
    execute `npm run down`. Não acrescente `-v` se quiser preservar o banco.
 
 O script deriva URLs usando `CODESPACE_NAME` e
@@ -48,15 +49,15 @@ estar autorizados para este repositório e disponíveis no Codespace. Após
 adicionar/alterar secrets, reinicie o Codespace conforme orientação do GitHub.
 Não copie seus valores para este documento, commits, imagens ou mensagens.
 
-| Variável                                     | Uso                                                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciais do terminal para consultas/deploy explicitamente autorizados.                                                    |
-| `AWS_SESSION_TOKEN`                          | Necessária quando as credenciais são temporárias.                                                                            |
-| `AWS_REGION` / `AWS_DEFAULT_REGION`          | Região dos comandos AWS; recursos auditados em `us-east-1`.                                                                  |
-| `PULUMI_ACCESS_TOKEN`                        | Somente se o backend Pulumi escolhido exigir autenticação por token.                                                         |
-| `DEMO_PASSWORD` em `.env`                    | Senha exclusiva da demonstração local. O script dá prioridade a esse arquivo, mesmo se houver secret cloud com o mesmo nome. |
-| `APP_ORIGIN` do container local              | Derivada pelo script; não usa a origem de produção herdada do terminal.                                                      |
-| `VITE_MAILPIT_URL`                           | Apenas URL pública de desenvolvimento, fornecida ao frontend. Nunca prefixar credenciais AWS com `VITE_`.                    |
+| Variável                                     | Uso                                                                                                                   |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciais do terminal para consultas/deploy explicitamente autorizados.                                             |
+| `AWS_SESSION_TOKEN`                          | Necessária quando as credenciais são temporárias.                                                                     |
+| `AWS_REGION` / `AWS_DEFAULT_REGION`          | Região dos comandos AWS; recursos auditados em `us-east-1`.                                                           |
+| `PULUMI_ACCESS_TOKEN`                        | Somente se o backend Pulumi escolhido exigir autenticação por token.                                                  |
+| `DEMO_PASSWORD` em `.env`                    | Senha da demonstração local. A API só a expõe para o frontend se tabela, endpoint e seed forem exclusivamente locais. |
+| `APP_ORIGIN` do container local              | Derivada pelo script; não usa a origem de produção herdada do terminal.                                               |
+| `VITE_MAILPIT_URL`                           | Apenas URL pública de desenvolvimento, fornecida ao frontend. Nunca prefixar credenciais AWS com `VITE_`.             |
 
 O Compose fixa credenciais fictícias `local`, limpa `AWS_SESSION_TOKEN` e aponta
 para `http://db:8000`, tabela `autokeep-local`. Não recebe os secrets AWS reais

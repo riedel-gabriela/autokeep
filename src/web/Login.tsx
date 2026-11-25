@@ -31,6 +31,8 @@ export function Login({
   const [showPassword, setShowPassword] = useState(false),
     [busy, setBusy] = useState(false),
     [googleEnabled, setGoogleEnabled] = useState(false),
+    [passwordLoginEnabled, setPasswordLoginEnabled] = useState(local),
+    [demoCredentialsAvailable, setDemoCredentialsAvailable] = useState(false),
     [error, setError] = useState(() => {
       const code = new URLSearchParams(location.search).get('googleError');
       return code
@@ -46,8 +48,22 @@ export function Login({
   const [workspaceName, setWorkspaceName] = useState('');
   useEffect(() => {
     const controller = new AbortController();
-    void api<{ google: boolean }>('/auth/providers', { signal: controller.signal })
-      .then(({ google }) => setGoogleEnabled(google))
+    void api<{ google: boolean; password: boolean }>('/auth/providers', {
+      signal: controller.signal,
+    })
+      .then(({ google, password }) => {
+        setGoogleEnabled(google);
+        setPasswordLoginEnabled(password);
+      })
+      .catch(() => {});
+    void api<{ email: string; password: string }>('/auth/demo-credentials', {
+      signal: controller.signal,
+    })
+      .then(({ email: demoEmail, password: demoPassword }) => {
+        setEmail(demoEmail);
+        setPassword(demoPassword);
+        setDemoCredentialsAvailable(true);
+      })
       .catch(() => {});
     const url = new URL(location.href);
     if (url.searchParams.has('googleError')) {
@@ -142,14 +158,18 @@ export function Login({
               ? 'Crie seu espaço'
               : register
                 ? 'Você está convidado.'
-                : 'Bom te ver por aqui.'}
+                : local
+                  ? 'Bom te ver por aqui.'
+                  : 'Entre com Google.'}
           </h2>
           <p>
             {signup
               ? 'Escolha como você quer usar o AutoKeep.'
               : register
                 ? 'Crie sua conta para acompanhar os veículos da frota.'
-                : 'Entre para acompanhar o que move o seu dia.'}
+                : local
+                  ? 'Entre para acompanhar o que move o seu dia.'
+                  : 'Use sua conta Google para acessar seus veículos e sua frota.'}
           </p>
           {registered && (
             <div className="success-note">
@@ -220,8 +240,14 @@ export function Login({
                 Voltar para o login
               </button>
             </form>
-          ) : (
+          ) : passwordLoginEnabled || (googleEnabled && !register) ? (
             <form onSubmit={submit}>
+              {!passwordLoginEnabled && (
+                <div className="info-note">
+                  Use estes dados apenas para vincular uma conta existente. A entrada será feita
+                  pelo Google.
+                </div>
+              )}
               {register ? (
                 <label>
                   Seu nome
@@ -275,16 +301,18 @@ export function Login({
                   {error}
                 </div>
               )}
-              <button className="button primary login-submit" disabled={busy}>
-                {busy ? (
-                  <LoaderCircle className="spin" size={18} />
-                ) : (
-                  <>
-                    {register ? 'Criar minha conta' : 'Entrar na minha conta'}
-                    <ArrowRight size={18} />
-                  </>
-                )}
-              </button>
+              {passwordLoginEnabled && (
+                <button className="button primary login-submit" disabled={busy}>
+                  {busy ? (
+                    <LoaderCircle className="spin" size={18} />
+                  ) : (
+                    <>
+                      {register ? 'Criar minha conta' : 'Entrar na minha conta'}
+                      <ArrowRight size={18} />
+                    </>
+                  )}
+                </button>
+              )}
               {googleEnabled && !register && (
                 <button
                   className="button secondary"
@@ -296,6 +324,12 @@ export function Login({
                 </button>
               )}
             </form>
+          ) : (
+            <div className="info-note" role="status">
+              {googleEnabled
+                ? 'A autenticação desta aplicação usa sua conta Google.'
+                : 'O login Google ainda não está configurado neste ambiente.'}
+            </div>
           )}
           {googleEnabled && !signup && (
             <button
@@ -320,7 +354,7 @@ export function Login({
               Criar uma conta
             </button>
           )}
-          {!register && !signup && (
+          {passwordLoginEnabled && !register && !signup && (
             <div className="demo-accounts">
               <span className="eyebrow">EXPLORE OS PERFIS DE DEMONSTRAÇÃO</span>
               <div>
@@ -338,10 +372,18 @@ export function Login({
                   </button>
                 ))}
               </div>
-              <p>
-                A senha está disponível no terminal com{' '}
-                <code>{local ? 'npm run credentials' : 'npm run credentials -- --cloud'}</code>.
-              </p>
+              {demoCredentialsAvailable ? (
+                <p>Senha local de demonstração preenchida automaticamente.</p>
+              ) : local ? (
+                <p>
+                  A senha local também aparece no terminal com <code>npm run credentials</code>.
+                </p>
+              ) : (
+                <p>
+                  A senha de demonstração está no terminal com{' '}
+                  <code>npm run credentials -- --cloud</code>.
+                </p>
+              )}
             </div>
           )}
           <div className="login-footnote">

@@ -12,7 +12,12 @@ funções existentes.
 - Leituras de quilometragem, histórico, trocas de óleo, arquivamento e auditoria.
 - Alertas por distância e tempo, pré-alertas, projeção e notificações persistidas.
 - Tema claro/escuro, cadastro por convite e autenticação por senha.
-- OAuth Google opcional e Web Push; ambos dependem de configuração explícita.
+- Login por Google OAuth obrigatório na produção, com criação de espaço e
+  vinculação de contas existentes. O modo por senha fica disponível em dev.
+- Credenciais locais de demonstração preenchidas automaticamente apenas para a
+  tabela DynamoDB Local; não são expostas pelas stacks AWS.
+- Web Push opcional, com envio agendado restrito à stack `dev` e desligado por
+  padrão.
 - Hospedagem AWS: S3 privado e CloudFront para o frontend, API Gateway HTTP,
   Lambda, DynamoDB, ACM e DNS Route 53.
 - CI no GitHub Actions e fluxo de desenvolvimento/teste local com AWS SAM.
@@ -39,11 +44,11 @@ Local descartável e recusam endpoints cloud.
 ## Configurações opcionais e custos
 
 OAuth Google requer cliente OAuth e segredo no AWS Secrets Manager, além de
-permissão de leitura limitada ao ARN desse segredo. O Web Push local usa chaves
-VAPID no `.env`; o envio agendado na AWS é restrito à stack `dev`, exige
-habilitação explícita e cria uma regra EventBridge. Esses recursos permanecem
-desligados até serem configurados e aprovados. Verifique custos AWS atuais antes
-de habilitá-los.
+permissão de leitura limitada ao ARN desse segredo. O Pulumi impede o preview de
+produção se o client ID/ARN não estiverem configurados. O Web Push local usa
+chaves VAPID no `.env`; o envio agendado na AWS é restrito à stack `dev`, exige
+habilitação explícita e cria uma regra EventBridge. Verifique custos AWS atuais
+antes de criar segredo ou habilitar push agendado.
 
 O convite cloud oferece um link copiável; e-mail real não está configurado.
 OBD2 aceita somente valor confirmado pelo usuário; leitura automática Bluetooth

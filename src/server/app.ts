@@ -64,6 +64,12 @@ const googleStartInput = z
 const oauthLifetime = 10 * 60_000;
 const oauthCookie = 'autokeep_google';
 const secureCookies = origin.startsWith('https://');
+const googleOAuthRequired = process.env.AUTH_MODE === 'google';
+const localDemoCredentialsEnabled =
+  !googleOAuthRequired &&
+  process.env.DYNAMODB_TABLE === 'autokeep-local' &&
+  process.env.DYNAMODB_ENDPOINT === 'http://db:8000' &&
+  process.env.SEED_DEMO === 'true';
 const oauthCookieOptions = {
   httpOnly: true,
   sameSite: 'lax' as const,
@@ -373,11 +379,23 @@ export function createApp() {
     legacyHeaders: false,
   });
   api.post('/auth/login', loginLimiter, async (req, res) => {
+    check(!googleOAuthRequired, 403, 'GOOGLE_LOGIN_REQUIRED', 'Entre com sua conta Google.');
     const user = await authenticatePassword(loginInput.parse(req.body));
     const memberships = await openSession(res, user.id);
     res.json({ user: userPublic(user), memberships });
   });
-  api.get('/auth/providers', (_req, res) => res.json({ google: googleEnabled }));
+  api.get('/auth/providers', (_req, res) =>
+    res.json({ google: googleEnabled, password: !googleOAuthRequired }),
+  );
+  api.get('/auth/demo-credentials', (_req, res) => {
+    check(
+      localDemoCredentialsEnabled && process.env.DEMO_PASSWORD,
+      404,
+      'DEMO_CREDENTIALS_UNAVAILABLE',
+      'Credenciais locais indisponíveis.',
+    );
+    res.json({ email: 'ana@autokeep.local', password: process.env.DEMO_PASSWORD });
+  });
   if (googleEnabled) {
     api.post('/auth/google/start', loginLimiter, async (req, res) => {
       const { credentials, invitation, workspace } = googleStartInput.parse(req.body);
@@ -493,6 +511,12 @@ export function createApp() {
     });
   }
   api.post('/auth/register-invited', loginLimiter, async (req, res) => {
+    check(
+      !googleOAuthRequired,
+      403,
+      'GOOGLE_LOGIN_REQUIRED',
+      'Aceite seu convite com sua conta Google.',
+    );
     const input = invitationInput
       .extend({ name: z.string().trim().min(2).max(100), password: password.min(12) })
       .parse(req.body);

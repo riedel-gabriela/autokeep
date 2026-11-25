@@ -62,8 +62,11 @@ isolamento antes de considerar a validação funcional concluída.
 
 Os valores de produção estão em `Pulumi.prod.yaml`: hospedagem e domínio ativos,
 origem `https://autokeep.negoci.online`. Credenciais AWS e token Pulumi nunca
-devem ser versionados. A aplicação recebeu OAuth Google e Web Push, mas essas
-integrações permanecem desligadas se não forem configuradas explicitamente.
+devem ser versionados. No deploy de produção, o Pulumi define `AUTH_MODE=google`
+e interrompe o preview se não encontrar um client ID e ARN de segredo válidos
+na configuração ou na Lambda existente. O login e o cadastro por senha ficam
+bloqueados; um usuário novo pode criar um espaço com Google e um usuário
+existente pode vincular sua conta uma vez. Web Push segue desligado.
 
 ## OAuth Google (opcional)
 

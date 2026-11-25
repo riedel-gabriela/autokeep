@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "deve": "npm run dev",
+    "credentials:cloud": "node scripts/credentials.mjs --cloud",
     "dev:container": "tsx watch --ignore src/web src/server/server.ts",
     "down": "node scripts/dev.mjs down",
     "credentials": "node scripts/credentials.mjs",

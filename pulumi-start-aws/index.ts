@@ -96,7 +96,9 @@ const appOrigin = hostingEnabled ? config.require('appOrigin') : undefined;
 if (googleClientId || googleSecretArn) {
   const expectedArnPrefix = `arn:aws:secretsmanager:us-east-1:${accountId}:secret:`;
   if (!hostingEnabled || !googleClientId || !googleSecretArn?.startsWith(expectedArnPrefix))
-    throw new Error('Configure hostingEnabled, googleClientId e o ARN do segredo para a stack selecionada.');
+    throw new Error(
+      'Configure hostingEnabled, googleClientId e o ARN do segredo para a stack selecionada.',
+    );
   const publicUrl = new URL(appOrigin!);
   if (publicUrl.origin !== appOrigin || publicUrl.protocol !== 'https:')
     throw new Error('appOrigin do OAuth deve ser uma origem HTTPS sem caminho ou barra final.');
@@ -105,23 +107,39 @@ const preservedEnvironment =
   currentLambda &&
   pulumi
     .all([currentLambda.environment, pushPrivateKey])
-    .apply(([environment, vapidPrivateKey]) => ({
-      ...environment.variables,
-      DYNAMODB_TABLE: tableName,
-      APP_ORIGIN: appOrigin!,
-      ...(googleClientId && googleSecretArn
-        ? { GOOGLE_CLIENT_ID: googleClientId, GOOGLE_CLIENT_SECRET_ARN: googleSecretArn }
-        : stack === 'dev'
-          ? { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET_ARN: '' }
+    .apply(([environment, vapidPrivateKey]) => {
+      const variables = environment.variables ?? {};
+      const resolvedGoogleClientId = googleClientId || variables.GOOGLE_CLIENT_ID;
+      const resolvedGoogleSecretArn = googleSecretArn || variables.GOOGLE_CLIENT_SECRET_ARN;
+      if (stack === 'prod') {
+        const expectedArnPrefix = `arn:aws:secretsmanager:us-east-1:${accountId}:secret:`;
+        if (!resolvedGoogleClientId || !resolvedGoogleSecretArn?.startsWith(expectedArnPrefix))
+          throw new Error(
+            'Produção exige OAuth Google: configure googleClientId e googleClientSecretArn ou preserve esses valores na Lambda existente.',
+          );
+      }
+      return {
+        ...variables,
+        DYNAMODB_TABLE: tableName,
+        APP_ORIGIN: appOrigin!,
+        AUTH_MODE: stack === 'prod' ? 'google' : 'password',
+        ...(resolvedGoogleClientId && resolvedGoogleSecretArn
+          ? {
+              GOOGLE_CLIENT_ID: resolvedGoogleClientId,
+              GOOGLE_CLIENT_SECRET_ARN: resolvedGoogleSecretArn,
+            }
+          : stack === 'dev'
+            ? { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET_ARN: '' }
+            : {}),
+        ...(stack === 'dev'
+          ? {
+              PUSH_PUBLIC_KEY: pushPublicKey,
+              PUSH_PRIVATE_KEY: vapidPrivateKey,
+              PUSH_SUBJECT: pushSubject,
+            }
           : {}),
-      ...(stack === 'dev'
-        ? {
-            PUSH_PUBLIC_KEY: pushPublicKey,
-            PUSH_PRIVATE_KEY: vapidPrivateKey,
-            PUSH_SUBJECT: pushSubject,
-          }
-        : {}),
-    }));
+      };
+    });
 
 if (hostingEnabled && !existsSync(lambdaCodePath)) {
   throw new Error('Execute npm run build:lambda antes de ativar hostingEnabled.');

@@ -87,14 +87,38 @@ test('Google login blocks state mismatch and replay, and public signup creates o
   });
 
   process.env.APP_ORIGIN = 'https://autokeep.test';
+  process.env.AUTH_MODE = 'google';
   process.env.GOOGLE_CLIENT_ID = clientId;
   process.env.GOOGLE_CLIENT_SECRET_ARN = 'test-arn';
-  process.env.SEED_DEMO = 'false';
+  process.env.DYNAMODB_TABLE = 'autokeep-local';
+  process.env.DYNAMODB_ENDPOINT = 'http://db:8000';
+  process.env.DEMO_PASSWORD = 'local-demo-password-123';
+  process.env.SEED_DEMO = 'true';
   const { createApp } = await import('../src/server/app.js');
   const server = createApp().listen(0, '127.0.0.1');
   t.after(() => server.close());
   await once(server, 'listening');
   const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
+  const providers = await browserFetch(`${endpoint}/auth/providers`);
+  assert.deepEqual(await providers.json(), { google: true, password: false });
+  const blockedPassword = await browserFetch(`${endpoint}/auth/login`, {
+    method: 'POST',
+    headers: { origin: process.env.APP_ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'ana@autokeep.local', password: process.env.DEMO_PASSWORD }),
+  });
+  assert.equal(blockedPassword.status, 403);
+  const blockedPasswordRegistration = await browserFetch(`${endpoint}/auth/register-invited`, {
+    method: 'POST',
+    headers: { origin: process.env.APP_ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      token: 'A'.repeat(43),
+      name: 'Convidado',
+      password: 'strong-password-123',
+    }),
+  });
+  assert.equal(blockedPasswordRegistration.status, 403);
+  const hiddenDemoCredentials = await browserFetch(`${endpoint}/auth/demo-credentials`);
+  assert.equal(hiddenDemoCredentials.status, 404);
   const start = async (body = {}) => {
     const started = await browserFetch(`${endpoint}/auth/google/start`, {
       method: 'POST',

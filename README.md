@@ -88,6 +88,21 @@ Leia o preview antes de confirmar `pulumi up`. Não adicione recursos pagos sem
 estimar o custo e obter aprovação. Créditos e franquias gratuitas não são teto
 de consumo.
 
+## Autenticação nos ambientes
+
+No Docker local, os três perfis usam a mesma senha de demonstração: a API a
+preenche automaticamente no login depois de carregar os dados semeados no
+DynamoDB Local. O terminal também mostra a senha com `npm run credentials`.
+Na stack AWS `dev`, o login é por e-mail e senha. Use
+`npm run credentials:cloud` para consultar a senha configurada no arquivo local
+`.env.cloud.local`.
+
+Na produção, a API aceita login por Google OAuth. O login por senha e o cadastro
+de convite por senha ficam bloqueados; a tela permite vincular uma conta
+existente uma vez antes de seguir com o Google. Um usuário novo pode criar seu
+espaço com Google. O Pulumi exige o client ID e o ARN do segredo OAuth antes de
+aprovar o preview de produção.
+
 ## Features e configuração AWS
 
 OAuth Google exige um cliente OAuth, segredo no Secrets Manager e configuração
