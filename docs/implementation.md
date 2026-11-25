@@ -8,10 +8,9 @@ O Docker mantém banco persistente na rede interna e usa credenciais fictícias.
 A criação automática de tabela é limitada a endpoint HTTP local conhecido e
 bloqueada em produção. Não cria recursos AWS.
 
-Notificações antes vazias no backend cloud agora são persistidas, deduplicadas
-e marcadas como lidas. São avaliadas sob demanda ao abrir a caixa de avisos,
-sem scan global nem agendador. Isso substitui a avaliação local de 15 minutos:
-sem acesso ao app não há novos avisos/emails. SMTP segue restrito ao Mailpit.
+Os avisos da caixa de notificações são avaliados sob demanda, persistidos,
+deduplicados e marcados como lidos. O Web Push avalia os alertas de manutenção
+em segundo plano. O SMTP local é usado para os convites de frota.
 
 O Pulumi adota as tabelas e Lambdas existentes e importa a hosted zone Route 53
 `autokeep.negoci.online`, criada em 18/11/2026. A hospedagem AWS está preparada

@@ -98,12 +98,9 @@ Não há mais dependência de senhas/variáveis MySQL no `.env`.
 - Pré-alertas a 500 km/30 dias, média das três últimas leituras e projeção.
 - Notificações persistidas e deduplicadas, com marcação de leitura e Web Push opcional.
 
-Notificações são avaliadas ao consultar a caixa de avisos de cada organização.
-Não há worker em background: sem abrir o app não são gerados novos avisos nem
-emails. Essa escolha elimina o worker MySQL duplicado e não adiciona um
-agendador pago. Emails são enviados somente ao Mailpit local, quando configurado;
-em nuvem, os convites oferecem link copiável. Email real e leitura
-automática de hardware OBD2 continuam pendentes. O modo OBD2 aceita somente
+Os avisos de manutenção aparecem na caixa de notificações e são enviados por
+Web Push aos navegadores inscritos quando o recurso está habilitado. Os convites
+de frota usam o Mailpit local e oferecem um link copiável em nuvem. O modo OBD2 aceita somente
 valor confirmado pelo usuário. O app exige conexão; não há operação offline.
 
 ## Verificação e build

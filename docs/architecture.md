@@ -34,17 +34,15 @@ uma evolução separada, especialmente cadastro/aceitação de convite e leitura
 
 Regras compartilhadas calculam distância e 365 dias, prevalecendo o primeiro
 limite. A média das três últimas leituras projeta o odômetro sem alterar o real.
-Notificações são calculadas sob demanda ao listar avisos; idempotência usa chave
-por veículo/ciclo/nível e escrita condicional. Não existe agendador cloud ou
-avaliação em background. Marcação de leitura é persistida por destinatário.
+Os avisos da caixa de notificações são calculados sob demanda. A deduplicação
+usa uma chave por veículo/ciclo/nível e escrita condicional. A marcação de
+leitura é persistida por destinatário.
 
-Email usa Mailpit local. O Web Push opcional usa assinaturas por navegador e
+Os convites de frota por e-mail usam o Mailpit local. O Web Push usa assinaturas por navegador e
 reavalia as permissões da frota antes de enviar. Cada dispositivo recebe um
 aviso por nível de manutenção no ciclo da troca de óleo. O servidor local
 verifica os avisos a cada minuto e a stack dev pode usar EventBridge a cada
 15 minutos. SES, SNS e hardware OBD2 ficam fora desse fluxo.
-O SMTP local pode duplicar email se houver interrupção após envio e antes da
-confirmação no banco. Não é um transporte de produção.
 
 ## Estado AWS
 

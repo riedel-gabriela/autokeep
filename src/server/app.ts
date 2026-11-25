@@ -973,8 +973,7 @@ export function createApp() {
       const event = `${v.id}:${v.lastOilChangeDate}:${v.status.level}:${v.calibrationDue}`;
       const id = digest(event),
         key = `NOTICE#${id}`;
-      let notification = await get(partition, key);
-      if (!notification) {
+      if (!(await get(partition, key))) {
         const title =
           v.status.level === 'DUE'
             ? 'Hora de trocar o óleo'
@@ -985,28 +984,18 @@ export function createApp() {
           v.status.level === 'OK'
             ? `${v.name}: registre uma nova leitura para calibrar a previsão.`
             : `${v.name} · ${v.plate}: ${Math.max(0, Math.floor(v.status.distanceRemainingKm))} km ou ${Math.max(0, v.status.daysRemaining)} dias para a troca.`;
-        notification = {
+        const notification = {
           id,
           vehicleId: v.id,
           title,
           body,
           createdAt: now(),
           readAt: null,
-          emailSentAt: null,
         };
         try {
           await put(partition, key, notification, true);
         } catch (error) {
           if (!isConditionalFailure(error)) throw error;
-          notification = await get(partition, key);
-        }
-      }
-      if (notification && !notification.emailSentAt && process.env.SMTP_HOST) {
-        try {
-          await sendLocalMail(user.email, notification.title, notification.body);
-          await put(partition, key, { ...notification, emailSentAt: now() });
-        } catch {
-          console.error(JSON.stringify({ event: 'notification_mail_failed' }));
         }
       }
     }

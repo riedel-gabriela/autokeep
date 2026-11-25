@@ -849,16 +849,6 @@ export function App() {
                       Os alertas de manutenção e lembretes de leitura aparecem aqui.
                     </Empty>
                   )}
-                  {local && (
-                    <div className="panel-footnote">
-                      <Mail size={16} />
-                      Os e-mails deste ambiente ficam na{' '}
-                      <a href={mailpitUrl ?? undefined} target="_blank" rel="noreferrer">
-                        caixa local
-                      </a>
-                      . Os avisos são avaliados ao abrir esta caixa de notificações.
-                    </div>
-                  )}
                 </section>
               )}
             </>
