@@ -1,0 +1,11 @@
+{
+  "version": "2.0",
+  "routeKey": "ANY /api/{proxy+}",
+  "rawPath": "/api/health",
+  "rawQueryString": "",
+  "headers": { "host": "localhost:3000", "accept": "application/json" },
+  "requestContext": {
+    "http": { "method": "GET", "path": "/api/health", "sourceIp": "127.0.0.1", "protocol": "HTTP/1.1" }
+  },
+  "isBase64Encoded": false
+}

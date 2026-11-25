@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AutoKeep — desenvolvimento e testes locais com SAM; publicação gerenciada pelo Pulumi
+
+Resources:
+  AutoKeepApi:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          APP_ORIGIN: http://localhost:3000
+          DYNAMODB_TABLE: autokeep-sam
+          DYNAMODB_ENDPOINT: http://dynamodb:8000
+          SEED_DEMO: 'false'
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            Path: /api/{proxy+}
+            Method: ANY
+            PayloadFormatVersion: '2.0'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - lambda/index.ts
+        Format: cjs
+        Target: es2022
+        Minify: false
+        OutExtension:
+          - .js=.cjs

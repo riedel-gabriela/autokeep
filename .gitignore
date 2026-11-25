@@ -13,3 +13,4 @@ tmp/
 coverage/
 docs/config.json
 .vercel
+.aws-sam/

@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createApp } from '../src/server/app.js';
+import { createApp, runMaintenancePush } from '../src/server/app.js';
 
 type FunctionUrlEvent = {
   rawPath: string;
@@ -24,7 +24,14 @@ function startServer() {
   return server;
 }
 
-export async function handler(event: FunctionUrlEvent) {
+export async function handler(
+  event: FunctionUrlEvent | { source: 'aws.events'; 'detail-type': 'Scheduled Event' },
+) {
+  if ('source' in event && event.source === 'aws.events') {
+    await runMaintenancePush();
+    return;
+  }
+  if (!('rawPath' in event)) return;
   const listener = await startServer();
   const port = (listener.address() as AddressInfo).port;
   const path = event.rawPath || '/';
