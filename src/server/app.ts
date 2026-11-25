@@ -687,7 +687,7 @@ export function createApp() {
     );
     res.json({ vehicles: await Promise.all(visible.map(presentCar)) });
   });
-  api.post(`${org}/vehicles`, async (req, res) => {
+  api.post(`${org}/vehicles`, admin, async (req, res) => {
     const input = createVehicleSchema.parse(req.body);
     const id = randomUUID(),
       time = now(),

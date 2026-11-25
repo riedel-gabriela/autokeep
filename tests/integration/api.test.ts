@@ -110,6 +110,7 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
     assert.equal(fleet.vehicles.length, 1);
     const car = `${org}/vehicles/${fleet.vehicles[0].id}`;
     assert.equal((await request(`${car}/oil-changes`, 'POST', {}, driver.cookie)).status, 403);
+    assert.equal((await request(`${org}/vehicles`, 'POST', {}, driver.cookie)).status, 403);
     const sent: string[] = [];
     t.mock.method(https, 'request', (options, onResponse) => {
       assert.equal(options.hostname, 'fcm.googleapis.com');
