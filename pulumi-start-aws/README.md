@@ -10,8 +10,7 @@ hospedagem do frontend e da API separadamente em `dev` e `prod`:
 - API Gateway HTTP `$default` integrado à Lambda em payload 2.0.
 
 A hospedagem permanece desativada por padrão (`hostingEnabled: false`).
-A stack `dev` usa seu próprio domínio CloudFront e oferece a opção de login com
-Google.
+As stacks `dev` e `prod` podem configurar o login com Google separadamente.
 
 ## Domínio
 
@@ -96,7 +95,7 @@ pulumi preview --diff
 Aguarde a validação do certificado e a distribuição CloudFront concluir. Teste
 HTTPS, DNS, `/api/health`, login e gravação antes de remover o deployment Vercel.
 
-## Login com Google em dev
+## Login com Google em dev e prod
 
 Gere os artefatos com `npm run build` e `npm run build:lambda` na raiz. No projeto
 Pulumi, selecione a stack `dev` e habilite a hospedagem:
@@ -133,7 +132,22 @@ APIs públicas do Google e acesso ao Secrets Manager. A role existente precisa
 das operações `GetItem`, `PutItem`, `DeleteItem` e `Query` na tabela
 `autokeep-dev`. O cadastro transacional usa operações `Put`.
 
-Após aplicar o preview, confira a URL com `pulumi stack output googleCallbackUrl
+Para `prod`, repita a configuração usando `--stack prod`, um cliente OAuth e um
+segredo próprios de produção. Use a origem HTTPS definitiva de produção em
+`appOrigin` (por exemplo, `https://autokeep.negoci.online` somente após validar
+o domínio) e cadastre essa origem seguida de `/api/auth/google/callback` no
+cliente Google de produção. Não compartilhe o segredo entre ambientes. Com a
+hospedagem ativa, configure `googleClientId` e `googleClientSecretArn` na stack
+prod e revise `pulumi preview --stack prod --diff` antes de qualquer aplicação.
+O preview deve limitar a permissão de leitura do segredo à role `autokeep-api-prod`
+e ao ARN configurado. Confira `pulumi stack output googleCallbackUrl --stack prod`
+e teste o fluxo completo na origem de produção após a publicação.
+
+A configuração OAuth exige `hostingEnabled` e uma origem HTTPS sem caminho.
+Sem credenciais Google em `prod`, valores já existentes na Lambda são preservados;
+a simples atualização do código não ativa o OAuth. Não registre segredos no Git.
+
+Após aplicar o preview de dev, confira a URL com `pulumi stack output googleCallbackUrl
 --stack dev`. Pelo domínio CloudFront, teste vincular uma conta existente com a
 senha do AutoKeep, sair e entrar com Google e criar uma conta com um espaço
 próprio em **Meu carro** ou **Gestão de frota**. Para testar o acesso de
@@ -160,12 +174,12 @@ concedida e um veículo próximo da troca de óleo.
 ## Recursos preservados
 
 As roles IAM existentes permanecem fora do gerenciamento deste projeto. O
-Pulumi gerencia a política inline de leitura do segredo OAuth da role dev.
+Pulumi gerencia a política inline de leitura do segredo OAuth da role da stack configurada.
 As tabelas usam 5 RCU/5 WCU cada, TTL `ttl`, sem PITR e chave AWS-owned. A Lambda
 usa Node.js 24.x, handler `index.handler`, 256 MB, timeout 15 s e armazenamento
 temporário de 512 MB. Com `hostingEnabled` ligado, o Pulumi publica o ZIP gerado
 por `npm run build:lambda` e atualiza `APP_ORIGIN` e `DYNAMODB_TABLE`, além da
-configuração Google quando a stack é `dev`. Os demais valores de ambiente são
+configuração Google quando informada para a stack. Os demais valores de ambiente são
 preservados como segredo.
 
 O bucket, CloudFront, API Gateway, integração e permissões de invocação usam

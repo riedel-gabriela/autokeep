@@ -12,8 +12,8 @@ const tableName = config.require('tableName');
 const functionName = config.require('functionName');
 const roleArn = config.require('roleArn');
 const hostingEnabled = config.getBoolean('hostingEnabled') === true;
-const googleClientId = stack === 'dev' ? config.get('googleClientId') : undefined;
-const googleSecretArn = stack === 'dev' ? config.get('googleClientSecretArn') : undefined;
+const googleClientId = config.get('googleClientId');
+const googleSecretArn = config.get('googleClientSecretArn');
 const pushEnabled = stack === 'dev' && config.getBoolean('pushEnabled') === true;
 if (pushEnabled && !hostingEnabled)
   throw new Error('Ative hostingEnabled na stack dev para usar Web Push.');
@@ -96,7 +96,7 @@ const appOrigin = hostingEnabled ? config.require('appOrigin') : undefined;
 if (googleClientId || googleSecretArn) {
   const expectedArnPrefix = `arn:aws:secretsmanager:us-east-1:${accountId}:secret:`;
   if (!hostingEnabled || !googleClientId || !googleSecretArn?.startsWith(expectedArnPrefix))
-    throw new Error('Configure hostingEnabled, googleClientId e o ARN do segredo da conta dev.');
+    throw new Error('Configure hostingEnabled, googleClientId e o ARN do segredo para a stack selecionada.');
   const publicUrl = new URL(appOrigin!);
   if (publicUrl.origin !== appOrigin || publicUrl.protocol !== 'https:')
     throw new Error('appOrigin do OAuth deve ser uma origem HTTPS sem caminho ou barra final.');
@@ -109,10 +109,13 @@ const preservedEnvironment =
       ...environment.variables,
       DYNAMODB_TABLE: tableName,
       APP_ORIGIN: appOrigin!,
+      ...(googleClientId && googleSecretArn
+        ? { GOOGLE_CLIENT_ID: googleClientId, GOOGLE_CLIENT_SECRET_ARN: googleSecretArn }
+        : stack === 'dev'
+          ? { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET_ARN: '' }
+          : {}),
       ...(stack === 'dev'
         ? {
-            GOOGLE_CLIENT_ID: googleClientId ?? '',
-            GOOGLE_CLIENT_SECRET_ARN: googleSecretArn ?? '',
             PUSH_PUBLIC_KEY: pushPublicKey,
             PUSH_PRIVATE_KEY: vapidPrivateKey,
             PUSH_SUBJECT: pushSubject,
