@@ -105,6 +105,11 @@ valor confirmado pelo usuário. O app exige conexão; não há operação offlin
 
 ## Verificação e build
 
+O workflow [CI](.github/workflows/ci.yml) executa testes unitários, integração
+com DynamoDB Local e builds do frontend e da Lambda em pushes e pull requests.
+Para testar a Lambda através do API Gateway emulado, consulte o
+[guia do AWS SAM local](docs/sam-local.md).
+
 ```sh
 npm ci
 npm test
