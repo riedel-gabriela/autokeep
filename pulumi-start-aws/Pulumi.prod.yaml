@@ -5,5 +5,6 @@ config:
   autokeep:functionName: autokeep-api-prod
   autokeep:roleArn: arn:aws:iam::672791231338:role/autokeep-api-prod
   autokeep:hostedZoneId: Z034110231W3QV3DHBMS
-  autokeep:hostingEnabled: false
+  autokeep:hostingEnabled: true
   autokeep:customDomainEnabled: true
+  autokeep:appOrigin: https://autokeep.negoci.online

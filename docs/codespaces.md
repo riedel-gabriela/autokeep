@@ -82,10 +82,11 @@ ListTables/ListFunctions. São consultas; não criam recursos. Confira se a cont
 permissão deve ser registrado como limitação; não ampliar IAM automaticamente.
 Evite despejar `env`, configurações completas de Lambda ou arquivos de secrets.
 
-Dois conjuntos AWS existem: tabelas `autokeep-dev`/`autokeep-prod` e funções
-`autokeep-api-dev`/`autokeep-api-prod`. A consulta real encontrou somente a
-stack `dev`, vazia, no backend Pulumi acessível; não encontrou `prod`.
-Se Pulumi estiver instalado/autenticado:
+Os recursos AWS incluem tabelas `autokeep-dev`/`autokeep-prod` e funções
+`autokeep-api-dev`/`autokeep-api-prod`. Em 18/11/2026, o Pulumi autenticado no
+Codespace selecionou a stack `prod` e concluiu a atualização #10 com 4 recursos
+criados e 36 inalterados. O site `https://autokeep.negoci.online` foi aberto.
+Para consultar as stacks atuais:
 
 ```sh
 cd pulumi-start-aws
@@ -94,10 +95,9 @@ pulumi stack ls
 ```
 
 Registre o backend e as stacks encontradas, sem publicar tokens ou exportações
-com secrets. O programa atual apenas referencia os recursos existentes; não
-gerencia sua configuração. Consulte [o guia Pulumi](../pulumi-start-aws/README.md).
-Não executar `pulumi up`, importar recursos ou mudar o backend como efeito
-colateral de iniciar a aplicação.
+com secrets. O programa adota recursos AWS existentes e gerencia também a
+hospedagem da produção. Consulte [o guia Pulumi](../pulumi-start-aws/README.md).
+Iniciar a aplicação local continua sem executar `pulumi up`.
 
 ## Validação
 
@@ -109,21 +109,23 @@ npm run build:lambda
 ```
 
 A integração usa outro DynamoDB Local descartável e recusa endpoints remotos.
-Configuração e URLs de Codespaces foram verificadas em testes locais e em um
-teste HTTP com host/origem encaminhados simulados. O Codespace existente já
-foi inspecionado e suas credenciais AWS/Pulumi foram validadas por consultas,
-sem exibir valores. A aplicação nova ainda aguarda transferência para a
-validação real, conforme [registro da sessão](codespaces-validation.md).
+O site público foi carregado e a atualização Pulumi da stack prod foi concluída.
+Login, operações de escrita/leitura e isolamento no ambiente AWS ainda precisam
+de teste funcional. O registro histórico de inspeção do Codespace está em
+[codespaces-validation.md](codespaces-validation.md); ele descreve o estado em
+17/11/2026, antes da atualização de produção.
 
 ## Custos e publicação
 
-Não foram criados recursos AWS para habilitar Codespaces. Qualquer novo recurso
-pago, inclusive usando créditos, exige antes autorização com serviço, valor e
-frequência. Alterar código/configuração local não publica a aplicação cloud.
+O Compose local não cria nem usa recursos AWS. A hospedagem de produção usa a
+infraestrutura AWS descrita no guia Pulumi e pode gerar cobranças por uso; os
+créditos não são limite rígido. Alterar código/configuração local não publica
+a aplicação cloud. Antes de adicionar qualquer serviço, estimar e aprovar o
+custo e a frequência da cobrança.
 
-Para Codespaces, o hostname encaminhado já fornece nome e HTTPS. Não precisa
-de Route 53, domínio registrado ou certificado ACM. Produção com domínio próprio
-é uma decisão separada, ainda pendente de nome/registrador e autorização de custo.
+O domínio próprio `autokeep.negoci.online` já está configurado na hospedagem
+AWS. Para desenvolvimento, as portas 8080/8025 do Codespace usam seus hostnames
+encaminhados e não precisam de Route 53 ou ACM.
 
 Referências oficiais:
 

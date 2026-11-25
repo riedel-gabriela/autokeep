@@ -1,187 +1,144 @@
 # Infraestrutura AWS do AutoKeep
 
-O projeto mantém em Pulumi os recursos existentes e permite habilitar a
-hospedagem do frontend e da API separadamente em `dev` e `prod`:
+Pulumi mantém as stacks `dev` e `prod` em `us-east-1`, adotando as tabelas
+DynamoDB e funções Lambda existentes. A stack `prod` também publica o frontend
+e a API em `https://autokeep.negoci.online`.
 
-- DynamoDB `autokeep-prod` e Lambda `autokeep-api-prod` existentes;
-- hosted zone Route 53 `autokeep.negoci.online` existente;
-- bucket S3 privado para os arquivos de `dist/web`;
-- CloudFront com HTTPS padrão, função de rewrite SPA e comportamento `/api/*`;
-- API Gateway HTTP `$default` integrado à Lambda em payload 2.0.
+```text
+navegador → Route 53 → CloudFront → S3 privado (frontend)
+                               └→ API Gateway HTTP → Lambda → DynamoDB
+```
 
-A hospedagem permanece desativada por padrão (`hostingEnabled: false`).
-As stacks `dev` e `prod` podem configurar o login com Google separadamente.
+O certificado HTTPS é validado por DNS. A hosted zone existente é importada
+pelo ID configurado; não crie outra zona para esse domínio.
 
-## Domínio
+## Pré-requisitos
 
-O professor já delegou `autokeep.negoci.online` aos quatro nameservers da
-hosted zone. Com `customDomainEnabled: true`, o Pulumi cria um certificado ACM
-com validação DNS, publica os registros Route 53 e adiciona o alias ao
-CloudFront. A propagação da delegação ainda precisa ser confirmada antes de
-considerar o HTTPS do domínio pronto.
+- Use o Codespace com os secrets AWS e acesso ao backend Pulumi.
+- Node.js/npm, AWS CLI e Pulumi disponíveis.
+- Credenciais devem apontar para a conta `672791231338` e região `us-east-1`.
+- Gere os artefatos na raiz do repositório antes de atualizar a stack.
 
-## Custos e limite da conta
+Confira a identidade sem imprimir credenciais:
 
-A hosted zone existente custa US$ 0,50/mês, mais consultas; essa cobrança já
-foi autorizada. CloudFront usa preço por uso, com franquia mensal de 1 TB de
-transferência, 10 milhões de requisições e 2 milhões de invocações da CloudFront
-Function. API Gateway HTTP não tem taxa mínima e oferece até 1 milhão de
-chamadas por mês por até 12 meses para contas elegíveis. S3 cobra por
-armazenamento, requisições e transferência. ACM para certificado público
-usado com CloudFront não tem cobrança pelo certificado.
+```sh
+aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
+```
 
-A console AWS consultada em 18/11/2026 mostrou plano Free, US$ 140 em créditos
-ativos e custo acumulado estimado de US$ 0. O plano cobre os custos enquanto
-estiver ativo, mas o acesso acaba quando o plano vencer ou os créditos
-terminarem. A data observada para o fim do plano é 23/03/2027. Franquias não
-são um limite de gasto e um orçamento da AWS apenas alerta; não interrompe
-recursos automaticamente. Não ativar `hostingEnabled` nem executar `pulumi up`
-sem revisar o preview e informar antes o custo/limite estimado da etapa.
+Se a conta não for a esperada, pare antes de aplicar.
 
-## Preparar no Codespaces
+## Atualizar produção
 
-As credenciais AWS e o token Pulumi ficam nos secrets do Codespace; não os
-copie para o repositório ou terminal de saída.
-
-Na raiz do repositório:
+Na raiz:
 
 ```sh
 npm ci
 npm run build
 npm run build:lambda
-```
-
-No projeto Pulumi:
-
-```sh
 cd pulumi-start-aws
 npm ci
 npm run check
 pulumi login
 pulumi stack select prod
 pulumi preview --diff
+pulumi up
+pulumi stack output
 ```
 
-Com hospedagem desativada, o preview deve mostrar somente a importação da
-hosted zone existente `Z034110231W3QV3DHBMS`. A importação associa a zona ao
-Pulumi; não cria outra zona nem configura registros da aplicação.
+Leia o plano completo antes de confirmar `pulumi up`. A atualização normal deve
+preservar a tabela e a função existentes. Se aparecer substituição ou remoção
+de tabela, Lambda, role ou DNS, não confirme. O Pulumi publica os builds web e
+Lambda gerados antes de entrar nesta pasta.
 
-## Ativação da hospedagem
-
-A ativação de `prod` é deliberada. O primeiro deploy usa o domínio
-Vercel atual como `appOrigin` durante a criação dos recursos; depois que o
-preview/aplicação criar a distribuição, atualize a origem para a URL CloudFront
-exportada. Isso preserva os demais valores de ambiente da Lambda como segredo.
+Confira o domínio e a API:
 
 ```sh
-pulumi config set autokeep:hostingEnabled true --stack prod
-pulumi config set autokeep:appOrigin https://autokeep-olive.vercel.app --stack prod
-pulumi preview --diff
+curl -i https://autokeep.negoci.online/
+curl -i https://autokeep.negoci.online/api/health
 ```
 
-Revise cada recurso e custo antes de aplicar. Após a distribuição existir, use
-`cloudFrontUrl` exportada como `appOrigin`, gere um novo preview e aplique a
-atualização da Lambda. Só então teste `/api/health`, login, cookies, operações
-de gravação e rotas da SPA pelo endereço CloudFront.
+Isso verifica disponibilidade básica; faça também login, gravações e teste de
+isolamento antes de considerar a validação funcional concluída.
 
-Quando o subdomínio estiver delegado:
+Os valores de produção estão em `Pulumi.prod.yaml`: hospedagem e domínio ativos,
+origem `https://autokeep.negoci.online`. Credenciais AWS e token Pulumi nunca
+devem ser versionados. A aplicação recebeu OAuth Google e Web Push, mas essas
+integrações permanecem desligadas se não forem configuradas explicitamente.
+
+## OAuth Google (opcional)
+
+OAuth requer cliente OAuth no Google Cloud e segredo do cliente no AWS Secrets
+Manager, região `us-east-1`. O segredo deve guardar apenas o texto do client
+secret e a policy criada pelo Pulumi limita `GetSecretValue` ao ARN informado.
+Use cliente e segredo separados para `dev` e `prod`.
+
+O Secrets Manager custa atualmente US$ 0,40 por segredo/mês, mais US$ 0,05 por
+10.000 chamadas de API. Uma chamada pode ocorrer no primeiro uso após cold start.
+Confirme saldo, créditos e eventual período gratuito antes de criar o segredo;
+o deploy não cria esse segredo automaticamente. [Preços do Secrets Manager](https://aws.amazon.com/secrets-manager/pricing/).
+
+Configure o ID e o ARN como valores não secretos da stack. Nunca passe o valor
+do segredo no Pulumi ou no terminal:
 
 ```sh
-pulumi config set autokeep:appOrigin https://autokeep.negoci.online --stack prod
-pulumi config set autokeep:customDomainEnabled true --stack prod
-pulumi preview --diff
+pulumi config set autokeep:googleClientId CLIENT_ID --stack prod
+pulumi config set autokeep:googleClientSecretArn ARN_DO_SEGREDO --stack prod
+pulumi stack output googleCallbackUrl --stack prod
+pulumi preview --diff --stack prod
 ```
 
-Aguarde a validação do certificado e a distribuição CloudFront concluir. Teste
-HTTPS, DNS, `/api/health`, login e gravação antes de remover o deployment Vercel.
+Cadastre a saída `googleCallbackUrl` como URI de redirecionamento autorizado no
+cliente Google. Revise o preview: a única permissão nova deve conceder
+`secretsmanager:GetSecretValue` para o ARN especificado. Só então aplique com
+`pulumi up --stack prod`. Sem essas duas configurações, OAuth fica desativado.
 
-## Login com Google em dev e prod
+## Web Push agendado (opcional, dev)
 
-Gere os artefatos com `npm run build` e `npm run build:lambda` na raiz. No projeto
-Pulumi, selecione a stack `dev` e habilite a hospedagem:
+O Web Push no Docker local pode usar chaves VAPID no `.env`. O processamento
+agendado na AWS é limitado a `dev` e cria regra EventBridge que invoca a Lambda
+a cada 15 minutos (cerca de 2.880 invocações por mês), além do consumo da Lambda
+e do DynamoDB. Pode haver cobrança conforme o uso e os créditos; não habilite
+sem conferir o Billing e aprovar esse consumo. EventBridge anuncia 14 milhões
+de invocações mensais gratuitas para Scheduler, mas o código usa regra agendada
+EventBridge e o limite não deve ser presumido como teto. [Preços do EventBridge](https://aws.amazon.com/eventbridge/pricing/).
+
+Habilitação exige `hostingEnabled` em `dev`, `pushEnabled: true`, chaves VAPID e
+`PUSH_SUBJECT`. A chave privada deve ser secreta. Gere os artefatos web/Lambda,
+revise `pulumi preview --diff --stack dev` e confira criação da regra e o novo
+timeout da Lambda antes de aplicar. Esta feature não é habilitada por este
+deploy de produção.
+
+## Desenvolvimento local e SAM
+
+O Docker local usa DynamoDB Local e Mailpit, sem AWS:
 
 ```sh
-pulumi config set autokeep:hostingEnabled true --stack dev
-pulumi config set autokeep:appOrigin http://localhost:8080 --stack dev
-pulumi preview --stack dev --diff
+cd ..
+npm run dev
+npm run credentials
+npm run down
 ```
 
-Após revisar e aplicar esse preview, consulte `pulumi stack output cloudFrontUrl
---stack dev`. A origem inicial serve para provisionar a distribuição. Use a URL
-exportada para configurar o OAuth antes de testar o login.
+`npm run down` preserva o volume local. Para apagar os dados locais também, use
+`docker compose down --volumes`. O fluxo para emular a Lambda e API Gateway com
+SAM está documentado em [`../docs/sam-local.md`](../docs/sam-local.md).
 
-1. No Google Cloud, crie um cliente OAuth do tipo **Aplicativo da Web**. Cadastre
-   a URL CloudFront seguida de `/api/auth/google/callback` como URI de
-   redirecionamento autorizada. Se a tela de consentimento estiver em modo de
-   teste, inclua os usuários que vão validar o login.
-2. No Secrets Manager da mesma conta, em `us-east-1`, crie um segredo usando a
-   chave gerenciada padrão do serviço. Armazene o segredo do cliente como texto
-   puro no valor do segredo, sem JSON. Copie somente o ARN para a configuração.
-3. Configure os valores e revise o segundo preview:
+## `pulumi destroy`
 
-   ```sh
-   pulumi config set autokeep:appOrigin https://DISTRIBUICAO.cloudfront.net --stack dev
-   pulumi config set autokeep:googleClientId CLIENT_ID --stack dev
-   pulumi config set autokeep:googleClientSecretArn ARN_DO_SEGREDO --stack dev
-   pulumi preview --stack dev --diff
-   ```
+`pulumi destroy` remove recursos registrados na stack. Tabelas, Lambda, zona
+DNS e hospedagem têm `protect` e/ou `retainOnDelete`; a operação deve falhar ao
+tentar remover recursos protegidos. Não retire essas proteções para contornar o
+bloqueio: isso pode apagar dados ou deixar recursos cobrando fora do estado.
 
-O segundo preview inclui a permissão `secretsmanager:GetSecretValue` na role
-`autokeep-api-dev` para o ARN indicado. A Lambda deve ter saída HTTPS para as
-APIs públicas do Google e acesso ao Secrets Manager. A role existente precisa
-das operações `GetItem`, `PutItem`, `DeleteItem` e `Query` na tabela
-`autokeep-dev`. O cadastro transacional usa operações `Put`.
+Para inspecionar a stack antes de qualquer destruição:
 
-Para `prod`, repita a configuração usando `--stack prod`, um cliente OAuth e um
-segredo próprios de produção. Use a origem HTTPS definitiva de produção em
-`appOrigin` (por exemplo, `https://autokeep.negoci.online` somente após validar
-o domínio) e cadastre essa origem seguida de `/api/auth/google/callback` no
-cliente Google de produção. Não compartilhe o segredo entre ambientes. Com a
-hospedagem ativa, configure `googleClientId` e `googleClientSecretArn` na stack
-prod e revise `pulumi preview --stack prod --diff` antes de qualquer aplicação.
-O preview deve limitar a permissão de leitura do segredo à role `autokeep-api-prod`
-e ao ARN configurado. Confira `pulumi stack output googleCallbackUrl --stack prod`
-e teste o fluxo completo na origem de produção após a publicação.
+```sh
+pulumi stack select dev
+pulumi stack --show-urns
+pulumi preview --diff --stack dev
+```
 
-A configuração OAuth exige `hostingEnabled` e uma origem HTTPS sem caminho.
-Sem credenciais Google em `prod`, valores já existentes na Lambda são preservados;
-a simples atualização do código não ativa o OAuth. Não registre segredos no Git.
-
-Após aplicar o preview de dev, confira a URL com `pulumi stack output googleCallbackUrl
---stack dev`. Pelo domínio CloudFront, teste vincular uma conta existente com a
-senha do AutoKeep, sair e entrar com Google e criar uma conta com um espaço
-próprio em **Meu carro** ou **Gestão de frota**. Para testar o acesso de
-**Motorista** a uma frota existente, use um convite válido para outro usuário.
-Confira se `/api/session` retorna só os espaços e papéis desse usuário.
-
-## Notificações push em dev
-
-Com a hospedagem de `dev` ativa, gere um par VAPID com
-`npx web-push generate-vapid-keys --json`. Configure na stack `dev`:
-
-- `autokeep:pushEnabled` com o valor `true`.
-- `autokeep:pushPublicKey` com a chave pública.
-- `autokeep:pushPrivateKey` com a chave privada, usando `pulumi config set --secret`.
-- `autokeep:pushSubject` com `mailto:` seguido de um e-mail de contato.
-
-Rode `npm run build` e `npm run build:lambda` na raiz e revise
-`pulumi preview --stack dev --diff`. A regra EventBridge invoca a Lambda a
-cada 15 minutos. A função precisa de saída HTTPS para os serviços de push dos
-navegadores. As inscrições e o histórico de entrega usam a tabela existente.
-Teste no domínio CloudFront em **Notificações**, com a permissão do navegador
-concedida e um veículo próximo da troca de óleo.
-
-## Recursos preservados
-
-As roles IAM existentes permanecem fora do gerenciamento deste projeto. O
-Pulumi gerencia a política inline de leitura do segredo OAuth da role da stack configurada.
-As tabelas usam 5 RCU/5 WCU cada, TTL `ttl`, sem PITR e chave AWS-owned. A Lambda
-usa Node.js 24.x, handler `index.handler`, 256 MB, timeout 15 s e armazenamento
-temporário de 512 MB. Com `hostingEnabled` ligado, o Pulumi publica o ZIP gerado
-por `npm run build:lambda` e atualiza `APP_ORIGIN` e `DYNAMODB_TABLE`, além da
-configuração Google quando informada para a stack. Os demais valores de ambiente são
-preservados como segredo.
-
-O bucket, CloudFront, API Gateway, integração e permissões de invocação usam
-`protect` e `retainOnDelete`. Não use `pulumi destroy` para desligar a
-hospedagem; revise remoções recurso a recurso e custos de retenção primeiro.
+Somente considere `pulumi destroy --stack dev` se o estado revisado estiver
+vazio ou se todos os recursos e dados puderem ser descartados. Não use destroy
+para pausar a hospedagem. Créditos e franquias gratuitas não são teto de gasto;
+verifique Billing antes e depois de qualquer alteração.

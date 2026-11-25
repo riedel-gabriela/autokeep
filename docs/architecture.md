@@ -4,13 +4,14 @@
 Docker local: React/Vite + Express ── DynamoDB Local (volume persistente)
                           └──────── Mailpit (captura local)
 
-Nuvem: frontend Vercel ── entrada API Vercel / Lambda Function URL
-                          └── mesma API Express ── DynamoDB dev ou prod
+Produção AWS: navegador ── Route 53 ── CloudFront ── S3 privado (frontend)
+                                               └── API Gateway ── Lambda ── DynamoDB
 ```
 
-`src/server/app.ts` contém a única implementação HTTP; `api/index.ts` e
-`lambda/index.ts` apenas adaptam os transportes. O servidor de desenvolvimento
-adiciona Vite e inicializa exclusivamente a tabela DynamoDB Local.
+`src/server/app.ts` contém a implementação HTTP; `lambda/index.ts` adapta a
+Lambda. `api/index.ts` é um adaptador Vercel legado, não a entrada da hospedagem
+de produção atual. O servidor de desenvolvimento adiciona Vite e usa somente a
+tabela DynamoDB Local.
 
 ## Dados e autorização
 
@@ -46,7 +47,13 @@ verifica os avisos a cada minuto e a stack dev pode usar EventBridge a cada
 
 ## Estado AWS
 
-Dev/prod possuem tabelas e Lambdas distintas. A auditoria confirmou Function URL,
-sem API Gateway, CloudFront ou Route 53. JWT Cognito, SES/SNS e worker EventBridge
-faziam parte de uma proposta antiga, não da infraestrutura implantada.
-Consulte `aws-review.md`; esta branch prepara código e não altera a AWS.
+Dev/prod possuem tabelas e Lambdas distintas. Produção usa a tabela
+`autokeep-prod` e a Lambda `autokeep-api-prod`, integradas por API Gateway HTTP.
+CloudFront serve o frontend do bucket privado S3, com HTTPS e rewrite das rotas
+da SPA. Route 53 resolve `autokeep.negoci.online`; o certificado ACM é validado
+por DNS. O Pulumi importa a zona, tabela e Lambdas existentes e gerencia os
+recursos de hospedagem descritos no guia `pulumi-start-aws/README.md`.
+
+Cognito, SES/SNS e worker EventBridge pertencem à proposta antiga e não fazem
+parte da topologia implantada. As notificações são calculadas sob demanda; não
+há envio de email de produção nem processo em background.

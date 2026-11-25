@@ -1,5 +1,8 @@
 # Validação do Codespaces — 17/11/2026
 
+> Registro histórico anterior ao deploy AWS. Veja a atualização de 18/11/2026
+> no final para o estado da hospedagem e o que falta validar.
+
 Inspeção no Codespaces existente `animated-space-zebra-979r6jgq7vrf7ggq`,
 aberto no navegador. Não foi criado outro Codespace nem recurso AWS.
 
@@ -89,9 +92,22 @@ credenciais não foram adicionados ao repositório. `npm run check` passou para
 o projeto Pulumi local.
 
 Na retomada, a sessão do navegador informou que o host de acesso ao browser
-estava indisponível. O checkout local também não tem os executáveis `pulumi`
-ou `aws`; portanto não foi possível executar `pulumi preview` contra as
-credenciais do Codespaces. Nenhum `pulumi up`, importação no backend ou
-comando de escrita AWS foi executado. A execução e revisão dos previews de
-`dev` e `prod` continuam pendentes; o procedimento está em
-[`pulumi-start-aws/README.md`](../pulumi-start-aws/README.md).
+estava indisponível. O checkout local também não tinha os executáveis `pulumi`
+ou `aws`; portanto não foi possível executar `pulumi preview` naquela sessão.
+Este registro é histórico; a implantação foi executada depois e está descrita
+abaixo.
+
+## Hospedagem AWS publicada — 18/11/2026
+
+No Codespace `animated-space-zebra`, a CloudFront Function
+`autokeep-prod-spa-rewrite` foi publicada em `LIVE`. Em seguida, `pulumi preview
+--diff` mostrou 4 recursos a criar e 36 inalterados. A atualização #10 da stack
+`prod` concluiu sem erros: criou a distribuição CloudFront, policy de leitura
+S3 e registros Route 53 A/AAAA; 36 recursos ficaram inalterados.
+
+O site `https://autokeep.negoci.online` foi aberto com sucesso. Ainda não foram
+registrados testes AWS de login, gravação/leitura ou isolamento entre
+organizações. A configuração versionada de `Pulumi.prod.yaml` deve espelhar o
+estado aplicado (`hostingEnabled`, `customDomainEnabled` e `appOrigin` ativos).
+O procedimento para atualização e os limites de `pulumi destroy` estão no
+[`guia Pulumi`](../pulumi-start-aws/README.md).

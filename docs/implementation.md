@@ -1,44 +1,59 @@
-# Implementação unificada
+# Implementação atual
 
-A refatoração substitui o backend MySQL local por DynamoDB Local e mantém uma
-única API Express para Docker, Vercel e Lambda. Foram removidos as migrações SQL,
-o repositório SQL, autenticação/seed locais duplicados e worker MySQL.
+O frontend React/TypeScript consome uma API Express compartilhada entre Docker
+local e Lambda. Os dados ficam em DynamoDB: DynamoDB Local no Docker e tabelas
+AWS existentes `autokeep-dev` e `autokeep-prod`. Pulumi adota as tabelas e
+funções existentes.
 
-O Docker mantém banco persistente na rede interna e usa credenciais fictícias.
-A criação automática de tabela é limitada a endpoint HTTP local conhecido e
-bloqueada em produção. Não cria recursos AWS.
+## Recursos implementados
 
-Os avisos da caixa de notificações são avaliados sob demanda, persistidos,
-deduplicados e marcados como lidos. O Web Push avalia os alertas de manutenção
-em segundo plano. O SMTP local é usado para os convites de frota.
+- Garagem pessoal e espaços de frota com perfis ADMIN/DRIVER, atribuição de
+  veículos e isolamento por organização.
+- Leituras de quilometragem, histórico, trocas de óleo, arquivamento e auditoria.
+- Alertas por distância e tempo, pré-alertas, projeção e notificações persistidas.
+- Tema claro/escuro, cadastro por convite e autenticação por senha.
+- OAuth Google opcional e Web Push; ambos dependem de configuração explícita.
+- Hospedagem AWS: S3 privado e CloudFront para o frontend, API Gateway HTTP,
+  Lambda, DynamoDB, ACM e DNS Route 53.
+- CI no GitHub Actions e fluxo de desenvolvimento/teste local com AWS SAM.
 
-O Pulumi adota as tabelas e Lambdas existentes e importa a hosted zone Route 53
-`autokeep.negoci.online`, criada em 18/11/2026. A hospedagem AWS está preparada
-como opção desativada por padrão na stack `prod`: bucket privado S3, CloudFront,
-API Gateway HTTP e integração com a Lambda existente. Ela pode ser testada pelo
-hostname `cloudfront.net`, sem depender da delegação do subdomínio. Depois que o
-administrador de `negoci.online` delegar os nameservers, o Pulumi também pode
-provisionar certificado ACM e aliases Route 53. A implantação e a migração de
-tráfego ainda não foram executadas.
+## Hospedagem AWS de produção
 
-## Validação
+O site publicado em `https://autokeep.negoci.online` usa CloudFront para servir
+os arquivos do bucket S3 privado. `/api/*` segue para API Gateway HTTP, que
+invoca `autokeep-api-prod` e usa `autokeep-prod`. O certificado ACM é validado
+por DNS na zona Route 53 delegada. O Pulumi configura essa topologia.
 
-`npm test`: limites temporais/quilométricos, projeção, média e calibração.
-`npm run test:integration`: API real com DynamoDB Local descartável, login,
-isolamento de organização, RBAC, convites de uso único sequencial, persistência
-e deduplicação de notificações e logout. Recusa endpoints cloud.
-`npm run build`: TypeScript e SPA. `npm run build:lambda`: pacote local.
+Build e publicação são operações distintas. `npm run build` e
+`npm run build:lambda` geram artefatos; `pulumi preview --diff` mostra o plano;
+`pulumi up` aplica após revisão. O procedimento está em
+[`../pulumi-start-aws/README.md`](../pulumi-start-aws/README.md).
 
-## Limites preservados
+## Desenvolvimento local
 
-Não há migração automática dos dados MySQL antigos; seu volume não é apagado.
-OAuth com Google e Web Push podem ser habilitados na stack dev. O Web Push
-também pode ser habilitado no Docker local com chaves VAPID. Email cloud,
-offline e leitura Bluetooth OBD2 permanecem fora do escopo implementado.
-Operações multitem não são transacionais: disputas concorrentes exigem evolução
-específica. Latência abaixo de 200 ms não foi medida.
+`npm run dev` inicia frontend/API, DynamoDB Local e Mailpit pelo Compose. Esse
+caminho usa credenciais fictícias e não chama AWS. `npm run down` para os
+containers e preserva o volume local. Testes de integração iniciam um DynamoDB
+Local descartável e recusam endpoints cloud.
 
-A especificação PDF e `openapi.yaml` são referências originais. O contrato atual
-está em `openapi.local.yaml`; a API unificada usa os mesmos caminhos em nuvem.
-Veja `aws-review.md` para recursos auditados e `milestone-audit.md` para diagnóstico
-histórico das milestones antes da refatoração.
+## Configurações opcionais e custos
+
+OAuth Google requer cliente OAuth e segredo no AWS Secrets Manager, além de
+permissão de leitura limitada ao ARN desse segredo. O Web Push local usa chaves
+VAPID no `.env`; o envio agendado na AWS é restrito à stack `dev`, exige
+habilitação explícita e cria uma regra EventBridge. Esses recursos permanecem
+desligados até serem configurados e aprovados. Verifique custos AWS atuais antes
+de habilitá-los.
+
+O convite cloud oferece um link copiável; e-mail real não está configurado.
+OBD2 aceita somente valor confirmado pelo usuário; leitura automática Bluetooth
+e operação offline não estão implementadas. O histórico MySQL antigo não é
+migrado automaticamente nem é apagado por esta refatoração.
+
+## Evidência de validação
+
+O repositório inclui `npm test`, `npm run test:integration`, builds e validação
+SAM. Registre os comandos executados em cada revisão; a existência dos scripts
+não comprova sua execução. A disponibilidade de `/api/health` não comprova
+login, gravações ou isolamento ponta a ponta na AWS. A matriz de milestones
+está em [`milestone-audit.md`](milestone-audit.md).

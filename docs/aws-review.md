@@ -1,4 +1,7 @@
-# Verificação AWS — 17/11/2026
+# Verificação AWS — histórico de 17–18/11/2026
+
+> As tabelas iniciais registram inspeções anteriores à hospedagem, não o estado
+> atual completo. A seção final registra o deploy confirmado em 18/11/2026.
 
 Inspeção pelo console autenticado no Chrome, sem extensão. Região de aplicação:
 `us-east-1`. Não foram criados recursos nem executados deploys. Após a revisão
@@ -141,7 +144,7 @@ consequência automática dessa constatação.
 Nenhum deployment, secret, domínio ou configuração Vercel foi alterado. A
 refatoração e o suporte Codespaces locais ainda não substituíram esse deploy.
 
-## Preparação para hospedagem exclusivamente na AWS — 18/11/2026
+## Hospedagem AWS aplicada — 18/11/2026
 
 A console de Billing consultada nesta data mostrou plano Free, US$ 140,00 em
 créditos ativos, uso estimado de US$ 0,00 e fim do plano em 23/03/2027. O resumo
@@ -149,24 +152,24 @@ informava que créditos cobrem o plano gratuito e que o acesso termina quando o
 plano vencer ou os créditos acabarem. Não havia orçamento configurado. Um
 orçamento cria alertas, mas não é limite rígido de consumo.
 
-No código local, a stack `prod` agora oferece uma opção de hospedagem protegida:
-S3 privado com OAC, CloudFront e rewrite SPA, API Gateway HTTP `$default` e
-integração payload 2.0 para `autokeep-api-prod`. Por padrão,
-`autokeep:hostingEnabled` e `autokeep:customDomainEnabled` são falsos. Nenhum
-desses recursos foi criado. A ativação requer revisar preview e custo, e
-atualizar `APP_ORIGIN` da Lambda para a origem servida na CloudFront.
+O Pulumi executou a stack `prod`, atualização #10, no Codespace: **4 recursos
+criados e 36 inalterados**, sem erro. Os recursos novos foram a distribuição
+CloudFront, a policy do bucket e registros Route 53 A/AAAA. A CloudFront
+Function `autokeep-prod-spa-rewrite` foi publicada em `LIVE` antes da aplicação.
+O bucket S3 é privado; o API Gateway HTTP integra com `autokeep-api-prod` e a
+tabela `autokeep-prod`.
 
-O hostname CloudFront permite testar sem a delegação do professor. O certificado
-ACM e os aliases `autokeep.negoci.online` só serão ativados após a delegação NS;
-a hosted zone ainda contém somente NS/SOA. A Vercel continua publicada até
-login, escrita, cookies e `/api/health` serem validados pela AWS.
+O certificado ACM e os aliases DNS estão ativos na zona delegada
+`autokeep.negoci.online`. O site foi aberto com sucesso em
+`https://autokeep.negoci.online`. Isso confirma entrega da página; login,
+gravações e isolamento de dados ainda precisam de teste ponta a ponta no
+ambiente AWS.
 
-Estimativa de uso do artefato atual `dist/web`: 564 KiB em 18 objetos. A
-armazenagem mensal desse conteúdo no S3 Standard em us-east-1 é aproximadamente
-US$ 0,000013, além de operações S3, API Gateway e execução Lambda conforme o
-tráfego. CloudFront tem franquia mensal de 1 TB, 10 milhões de requisições e
-2 milhões de invocações da CloudFront Function. API Gateway HTTP tem franquia de
-1 milhão de chamadas mensais por até 12 meses para clientes elegíveis; o preço
-publicado de entrada após a franquia é US$ 1 por milhão de chamadas, mais
-transferência de dados. O custo real não tem teto automático. A migração segue
-sem provisionamento até a aprovação do custo da etapa.
+O arquivo versionado de produção deve manter `hostingEnabled: true`,
+`customDomainEnabled: true` e `appOrigin: https://autokeep.negoci.online` para
+representar a implantação. A configuração local reproduzida e os comandos
+atuais estão no [guia Pulumi](../pulumi-start-aws/README.md).
+
+Créditos e franquias não são um teto de consumo, e os preços variam por uso.
+Esta inspeção não calcula custo futuro nem autoriza serviços adicionais. Rever
+Billing periodicamente e obter autorização para qualquer recurso pago novo.
