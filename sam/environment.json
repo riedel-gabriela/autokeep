@@ -1,0 +1,8 @@
+{
+  "AutoKeepApi": {
+    "APP_ORIGIN": "http://localhost:3000",
+    "DYNAMODB_TABLE": "autokeep-sam",
+    "DYNAMODB_ENDPOINT": "http://dynamodb:8000",
+    "SEED_DEMO": "false"
+  }
+}

@@ -64,6 +64,25 @@ o banco fica na rede interna Docker. `npm run deve` é alias de `npm run dev`.
 Os dados ficam no volume `autokeep-local_dynamodb-data`. Parar/recriar os
 containers preserva o banco. Não use `down -v` se quiser manter os dados.
 
+### Testar notificações push localmente
+
+Com as dependências instaladas (`npm ci`), rode
+`npx web-push generate-vapid-keys --json` e adicione o par ao `.env` como
+`PUSH_PUBLIC_KEY` e `PUSH_PRIVATE_KEY`. Preencha `PUSH_SUBJECT` com
+`mailto:` seguido de um e-mail de contato. Preserve o mesmo par entre
+reinicializações. Rode `npm run dev`, abra **Notificações** e selecione
+**Ativar avisos neste dispositivo**. O navegador precisa permitir notificações
+e alcançar seu serviço de Web Push. O servidor local verifica os alertas a cada
+minuto.
+
+Para testar quilometragem, registre uma leitura perto ou acima do limite do
+óleo. Para testar tempo, use um veículo cuja última troca foi há cerca de um
+ano. O aviso antecipado começa a 500 km ou 30 dias do limite. Ao vencer por
+qualquer um dos critérios, o navegador recebe um aviso de troca. Administradores
+recebem avisos dos seus espaços e motoristas recebem apenas dos veículos
+atribuídos. As preferências são por navegador e o logout desativa a entrega
+naquele dispositivo.
+
 **Mudança de MySQL para DynamoDB:** não há migração automática dos dados antigos.
 O volume MySQL existente não é apagado por esta refatoração. Preserve-o e exporte
 seus dados antes de qualquer remoção; o novo ambiente começa com banco próprio.
@@ -77,17 +96,19 @@ Não há mais dependência de senhas/variáveis MySQL no `.env`.
 - Convites de sete dias, com hash do token e cadastro/aceitação.
 - Duplo relógio de manutenção: 5.000/8.000/12.000 km conforme óleo ou 365 dias.
 - Pré-alertas a 500 km/30 dias, média das três últimas leituras e projeção.
-- Notificações persistidas e deduplicadas, com marcação de leitura.
+- Notificações persistidas e deduplicadas, com marcação de leitura e Web Push opcional.
 
-Notificações são avaliadas ao consultar a caixa de avisos de cada organização.
-Não há worker em background: sem abrir o app não são gerados novos avisos nem
-emails. Essa escolha elimina o worker MySQL duplicado e não adiciona um
-agendador pago. Emails são enviados somente ao Mailpit local, quando configurado;
-em nuvem, os convites oferecem link copiável. Push remoto, email real e leitura
-automática de hardware OBD2 continuam pendentes. O modo OBD2 aceita somente
+Os avisos de manutenção aparecem na caixa de notificações e são enviados por
+Web Push aos navegadores inscritos quando o recurso está habilitado. Os convites
+de frota usam o Mailpit local e oferecem um link copiável em nuvem. O modo OBD2 aceita somente
 valor confirmado pelo usuário. O app exige conexão; não há operação offline.
 
 ## Verificação e build
+
+O workflow [CI](.github/workflows/ci.yml) executa testes unitários, integração
+com DynamoDB Local e builds do frontend e da Lambda em pushes e pull requests.
+Para testar a Lambda através do API Gateway emulado, consulte o
+[guia do AWS SAM local](docs/sam-local.md).
 
 ```sh
 npm ci

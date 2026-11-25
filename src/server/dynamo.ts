@@ -9,7 +9,9 @@ import {
   GetItemCommand,
   PutItemCommand,
   QueryCommand,
+  TransactWriteItemsCommand,
 } from '@aws-sdk/client-dynamodb';
+import { AppError } from './errors.js';
 
 const region = process.env.AWS_REGION || 'us-east-1';
 const table = process.env.DYNAMODB_TABLE || 'autokeep-dev';
@@ -73,10 +75,14 @@ async function request<T>(action: string, payload: Record<string, unknown>): Pro
       command = new QueryCommand(input as ConstructorParameters<typeof QueryCommand>[0]);
       break;
     case 'DescribeTable':
-      command = new DescribeTableCommand(input as ConstructorParameters<typeof DescribeTableCommand>[0]);
+      command = new DescribeTableCommand(
+        input as ConstructorParameters<typeof DescribeTableCommand>[0],
+      );
       break;
     case 'CreateTable':
-      command = new CreateTableCommand(input as ConstructorParameters<typeof CreateTableCommand>[0]);
+      command = new CreateTableCommand(
+        input as ConstructorParameters<typeof CreateTableCommand>[0],
+      );
       break;
     default:
       throw new Error(`Unsupported DynamoDB operation: ${action}`);
@@ -103,6 +109,77 @@ export async function remove(pk: string, sk: string) {
   return request('DeleteItem', { Key: encode({ pk, sk }) });
 }
 
+export async function take(pk: string, sk: string) {
+  const result = await request<{ Attributes?: Item }>('DeleteItem', {
+    Key: encode({ pk, sk }),
+    ReturnValues: 'ALL_OLD',
+  });
+  return decode(result.Attributes);
+}
+
+export async function claimDelivery(pk: string, sk: string, leaseUntil: number) {
+  await request('PutItem', {
+    Item: encode({ pk, sk, leaseUntil, ttl: Math.ceil(leaseUntil / 1000) }),
+    ConditionExpression: 'attribute_not_exists(pk) OR leaseUntil < :now',
+    ExpressionAttributeValues: { ':now': { N: String(Date.now()) } },
+  });
+}
+
+export async function removeOwned(pk: string, sk: string, userId: string) {
+  try {
+    await request('DeleteItem', {
+      Key: encode({ pk, sk }),
+      ConditionExpression: 'userId = :userId',
+      ExpressionAttributeValues: { ':userId': { S: userId } },
+    });
+  } catch (error) {
+    if (!isConditionalFailure(error)) throw error;
+  }
+}
+
+type RegistrationItem = {
+  pk: string;
+  sk: string;
+  data: Record<string, unknown>;
+  unacceptedInvite?: boolean;
+};
+
+export async function writeRegistration(items: RegistrationItem[]) {
+  try {
+    await client.send(
+      new TransactWriteItemsCommand({
+        TransactItems: items.map(({ pk, sk, data, unacceptedInvite }) => ({
+          Put: {
+            TableName: table,
+            Item: encode({ ...data, pk, sk }),
+            ConditionExpression: unacceptedInvite
+              ? 'attribute_exists(pk) AND attribute_not_exists(acceptedAt) AND expiresAt > :now'
+              : 'attribute_not_exists(pk)',
+            ExpressionAttributeValues: unacceptedInvite
+              ? { ':now': { N: String(Date.now()) } }
+              : undefined,
+          },
+        })),
+      }),
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.name === 'TransactionCanceledException' &&
+      (error as { CancellationReasons?: { Code?: string }[] }).CancellationReasons?.some(
+        (reason) => reason.Code === 'ConditionalCheckFailed',
+      )
+    ) {
+      throw new AppError(
+        409,
+        'REGISTRATION_CONFLICT',
+        'A conta já existe ou o convite não está mais disponível.',
+      );
+    }
+    throw error;
+  }
+}
+
 export async function query(pk: string, prefix: string, limit?: number) {
   const items: Record<string, any>[] = [];
   let last: Item | undefined;
@@ -122,7 +199,7 @@ export async function query(pk: string, prefix: string, limit?: number) {
 }
 
 export function isConditionalFailure(error: unknown) {
-  return (error as { code?: string })?.code === 'ConditionalCheckFailedException';
+  return (error as { name?: string })?.name === 'ConditionalCheckFailedException';
 }
 
 // Only the local development server may create a table. Cloud always uses IaC.
@@ -141,7 +218,7 @@ export async function ensureLocalTable() {
       try {
         await request('DescribeTable', {});
       } catch (error) {
-        if ((error as { code?: string }).code !== 'ResourceNotFoundException') throw error;
+        if ((error as { name?: string }).name !== 'ResourceNotFoundException') throw error;
         try {
           await request('CreateTable', {
             AttributeDefinitions: [
@@ -155,7 +232,7 @@ export async function ensureLocalTable() {
             ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
           });
         } catch (createError) {
-          if ((createError as { code?: string }).code !== 'ResourceInUseException')
+          if ((createError as { name?: string }).name !== 'ResourceInUseException')
             throw createError;
         }
       }

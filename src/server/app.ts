@@ -1,12 +1,31 @@
-import express, { type RequestHandler, type ErrorRequestHandler } from 'express';
+import express, { type RequestHandler, type ErrorRequestHandler, type Response } from 'express';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { compare, hash } from 'bcryptjs';
 import { parseCookie } from 'cookie';
 import { rateLimit } from 'express-rate-limit';
 import { z, ZodError } from 'zod';
+import * as oidc from 'openid-client';
 import { enrichVehicle, type Membership, type Vehicle } from '../shared/domain.js';
 import { AppError, check } from './errors.js';
-import { get, put, query, remove, isConditionalFailure } from './dynamo.js';
+import {
+  get,
+  put,
+  query,
+  remove,
+  removeOwned,
+  take,
+  writeRegistration,
+  isConditionalFailure,
+} from './dynamo.js';
+import {
+  deliverMaintenancePush,
+  pushEndpoint,
+  pushPartition,
+  pushPublicKey,
+  pushSubscription,
+  subscriptionKey,
+} from './push.js';
+import { googleCallbackPath, googleConfiguration, googleEnabled } from './google.js';
 import { sendLocalMail } from './mail.js';
 import { createVehicleSchema, oilChangeSchema, readingSchema, uuid } from './validation.js';
 
@@ -28,10 +47,129 @@ const email = z
   .transform((v) => v.toLowerCase());
 const loginInput = z.object({ email, password }).strict();
 const invitationInput = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+const workspaceSignup = z
+  .object({
+    kind: z.enum(['PERSONAL', 'FLEET']),
+    name: z.string().trim().min(2).max(100),
+  })
+  .strict();
+const googleStartInput = z
+  .object({
+    invitation: invitationInput.shape.token.optional(),
+    credentials: loginInput.optional(),
+    workspace: workspaceSignup.optional(),
+  })
+  .strict()
+  .refine(({ workspace, invitation, credentials }) => !workspace || (!invitation && !credentials));
+const oauthLifetime = 10 * 60_000;
+const oauthCookie = 'autokeep_google';
+const secureCookies = origin.startsWith('https://');
+const oauthCookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  secure: secureCookies,
+  path: googleCallbackPath,
+};
 
 async function userByEmail(address: string) {
   const pointer = await get(`EMAIL#${address}`, 'USER');
   return pointer ? get(userKey(pointer.userId), 'PROFILE') : undefined;
+}
+
+async function authenticatePassword(input: z.infer<typeof loginInput>) {
+  const user = await userByEmail(input.email);
+  const valid = await compare(
+    input.password,
+    user?.passwordHash || '$2b$12$ylKop6NrdzvBR57FKgpFAus24xX1XJWbn90TliAu3Ln84h35jNAwu',
+  );
+  check(user?.passwordHash && valid, 401, 'INVALID_CREDENTIALS', 'E-mail ou senha inválidos.');
+  return user!;
+}
+
+async function openSession(res: Response, userId: string) {
+  const memberships = await userMemberships(userId);
+  for (const membership of memberships) await audit(membership.organizationId, userId, 'LOGIN');
+  const token = randomBytes(32).toString('base64url');
+  const expiresAt = Date.now() + 12 * 60 * 60_000;
+  await put(`SESSION#${digest(token)}`, 'SESSION', {
+    userId,
+    expiresAt,
+    ttl: Math.floor(expiresAt / 1000),
+  });
+  res.cookie('autokeep_session', token, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: secureCookies,
+    maxAge: 12 * 60 * 60_000,
+    path: '/',
+  });
+  return memberships;
+}
+
+async function registerGoogleInvite(
+  token: string | undefined,
+  address: string,
+  name: string,
+  identityKey: string,
+) {
+  check(token, 403, 'GOOGLE_ACCOUNT_UNLINKED', 'Crie uma conta ou vincule uma conta existente.');
+  const inviteKey = `INVITE#${digest(token)}`;
+  const invite = await get(inviteKey, 'INVITE');
+  check(
+    invite && !invite.acceptedAt && invite.expiresAt > Date.now() && invite.email === address,
+    403,
+    'INVITATION_INVALID',
+    'Use a conta Google correspondente ao convite.',
+  );
+  return registerInvitedAccount(inviteKey, invite, name, { identityKey });
+}
+
+async function registerGoogleWorkspace(
+  workspace: z.infer<typeof workspaceSignup>,
+  address: string,
+  name: string,
+  identityKey: string,
+) {
+  const userId = randomUUID();
+  const organizationId = randomUUID();
+  await writeRegistration([
+    { pk: userKey(userId), sk: 'PROFILE', data: { id: userId, name, email: address } },
+    { pk: `EMAIL#${address}`, sk: 'USER', data: { userId } },
+    { pk: identityKey, sk: 'USER', data: { userId } },
+    { pk: orgKey(organizationId), sk: 'PROFILE', data: { id: organizationId, ...workspace } },
+    { pk: orgKey(organizationId), sk: `MEMBER#${userId}`, data: { userId, role: 'ADMIN' } },
+    { pk: userKey(userId), sk: `ORG#${organizationId}`, data: { organizationId, role: 'ADMIN' } },
+  ]);
+  return userId;
+}
+
+async function registerInvitedAccount(
+  inviteKey: string,
+  invite: Record<string, any>,
+  name: string,
+  authentication: { identityKey: string } | { passwordHash: string },
+) {
+  const id = randomUUID();
+  const organizationId: string = invite.organizationId;
+  const profile = { id, name, email: invite.email };
+  await writeRegistration([
+    {
+      pk: userKey(id),
+      sk: 'PROFILE',
+      data:
+        'passwordHash' in authentication
+          ? { ...profile, passwordHash: authentication.passwordHash }
+          : profile,
+    },
+    { pk: `EMAIL#${invite.email}`, sk: 'USER', data: { userId: id } },
+    { pk: orgKey(organizationId), sk: `MEMBER#${id}`, data: { userId: id, role: 'DRIVER' } },
+    { pk: userKey(id), sk: `ORG#${organizationId}`, data: { organizationId, role: 'DRIVER' } },
+    ...('identityKey' in authentication
+      ? [{ pk: authentication.identityKey, sk: 'USER', data: { userId: id } }]
+      : []),
+    { pk: inviteKey, sk: 'INVITE', data: { ...invite, acceptedAt: now() }, unacceptedInvite: true },
+  ]);
+  return id;
 }
 
 async function userMemberships(id: string): Promise<Membership[]> {
@@ -96,6 +234,22 @@ async function presentCar(car: Record<string, any>): Promise<Vehicle> {
       measuredAt: r.measuredAt,
       source: r.source,
     })),
+  });
+}
+
+export async function runMaintenancePush() {
+  await deliverMaintenancePush(async (userId) => {
+    const vehicles: Vehicle[] = [];
+    for (const membership of await query(userKey(userId), 'ORG#')) {
+      const key = orgKey(membership.organizationId);
+      const access = await get(key, `MEMBER#${userId}`);
+      if (!access) continue;
+      for (const car of await query(key, 'CAR#')) {
+        if (!car.archivedAt && (access.role === 'ADMIN' || car.assignedDriverId === userId))
+          vehicles.push(await presentCar(car));
+      }
+    }
+    return vehicles;
   });
 }
 
@@ -219,35 +373,131 @@ export function createApp() {
     legacyHeaders: false,
   });
   api.post('/auth/login', loginLimiter, async (req, res) => {
-    const input = loginInput.parse(req.body);
-    const user = await userByEmail(input.email);
-    const valid = await compare(
-      input.password,
-      user?.passwordHash || '$2b$12$ylKop6NrdzvBR57FKgpFAus24xX1XJWbn90TliAu3Ln84h35jNAwu',
-    );
-    check(user && valid, 401, 'INVALID_CREDENTIALS', 'E-mail ou senha inválidos.');
-    const token = randomBytes(32).toString('base64url');
-    await put(`SESSION#${digest(token)}`, 'SESSION', {
-      userId: user.id,
-      expiresAt: Date.now() + 12 * 60 * 60_000,
-      ttl: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
-    });
-    res.cookie('autokeep_session', token, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: origin.startsWith('https://'),
-      maxAge: 12 * 60 * 60_000,
-      path: '/',
-    });
-    const memberships = await userMemberships(user.id);
-    for (const membership of memberships) await audit(membership.organizationId, user.id, 'LOGIN');
+    const user = await authenticatePassword(loginInput.parse(req.body));
+    const memberships = await openSession(res, user.id);
     res.json({ user: userPublic(user), memberships });
   });
+  api.get('/auth/providers', (_req, res) => res.json({ google: googleEnabled }));
+  if (googleEnabled) {
+    api.post('/auth/google/start', loginLimiter, async (req, res) => {
+      const { credentials, invitation, workspace } = googleStartInput.parse(req.body);
+      const user = credentials ? await authenticatePassword(credentials) : undefined;
+      const config = await googleConfiguration();
+      const state = oidc.randomState();
+      const nonce = oidc.randomNonce();
+      const verifier = oidc.randomPKCECodeVerifier();
+      const browserToken = randomBytes(32).toString('base64url');
+      const expiresAt = Date.now() + oauthLifetime;
+      const url = oidc.buildAuthorizationUrl(config, {
+        redirect_uri: new URL(googleCallbackPath, origin).href,
+        scope: 'openid email profile',
+        state,
+        nonce,
+        code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
+        code_challenge_method: 'S256',
+        ...(user ? { prompt: 'select_account' } : {}),
+      });
+      await put(
+        `OAUTH#${digest(browserToken)}`,
+        'GOOGLE',
+        {
+          state,
+          nonce,
+          verifier,
+          expiresAt,
+          invitation,
+          workspace: workspace && JSON.stringify(workspace),
+          userId: user?.id,
+          ttl: Math.floor(expiresAt / 1000),
+        },
+        true,
+      );
+      res.cookie(oauthCookie, browserToken, { ...oauthCookieOptions, maxAge: oauthLifetime });
+      res.json({ url: url.href });
+    });
+    api.get('/auth/google/callback', async (req, res) => {
+      if (req.method !== 'GET') return void res.sendStatus(405);
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      let invitation: string | undefined;
+      try {
+        const browserToken = invitationInput.shape.token.safeParse(
+          parseCookie(req.headers.cookie || '')[oauthCookie],
+        );
+        check(browserToken.success, 400, 'OAUTH_STATE', 'Login expirado.');
+        const key = `OAUTH#${digest(browserToken.data)}`;
+        const pending = await get(key, 'GOOGLE');
+        check(
+          pending && pending.expiresAt > Date.now() && pending.state === req.query.state,
+          400,
+          'OAUTH_STATE',
+          'Login expirado.',
+        );
+        const attempt = await take(key, 'GOOGLE');
+        check(attempt, 400, 'OAUTH_STATE', 'Login expirado.');
+        res.clearCookie(oauthCookie, oauthCookieOptions);
+        invitation = attempt.invitation;
+        const callback = new URL(googleCallbackPath, origin);
+        callback.search = new URL(req.originalUrl, origin).search;
+        const tokens = await oidc.authorizationCodeGrant(await googleConfiguration(), callback, {
+          expectedState: attempt.state,
+          expectedNonce: attempt.nonce,
+          pkceCodeVerifier: attempt.verifier,
+        });
+        const claims = tokens.claims();
+        check(claims?.sub, 400, 'OAUTH_IDENTITY', 'Identidade Google inválida.');
+        const identityKey = `OIDC#${digest(JSON.stringify([claims.iss, claims.sub]))}`;
+        const identity = await get(identityKey, 'USER');
+        let userId: string;
+        if (attempt.userId || !identity) {
+          const address = email.safeParse(claims.email);
+          check(
+            claims.email_verified === true && address.success,
+            403,
+            'OAUTH_EMAIL',
+            'Use um e-mail Google verificado.',
+          );
+          if (attempt.userId) {
+            const user = await get(userKey(attempt.userId), 'PROFILE');
+            check(
+              user && user.email === address.data && (!identity || identity.userId === user.id),
+              403,
+              'OAUTH_LINK',
+              'Use a conta Google com o mesmo e-mail do AutoKeep.',
+            );
+            if (!identity) await put(identityKey, 'USER', { userId: user.id }, true);
+            userId = user.id;
+          } else {
+            const givenName = typeof claims.name === 'string' && claims.name.trim();
+            const name = (givenName || address.data).slice(0, 100);
+            userId = attempt.workspace
+              ? await registerGoogleWorkspace(
+                  workspaceSignup.parse(JSON.parse(attempt.workspace)),
+                  address.data,
+                  name,
+                  identityKey,
+                )
+              : await registerGoogleInvite(invitation, address.data, name, identityKey);
+            invitation = undefined;
+          }
+        } else {
+          userId = identity.userId;
+        }
+        check(await get(userKey(userId), 'PROFILE'), 403, 'OAUTH_IDENTITY', 'Conta indisponível.');
+        await openSession(res, userId);
+        res.redirect(303, invitation ? `/#invite=${invitation}` : '/');
+      } catch (error) {
+        const code = error instanceof AppError ? error.code : 'OAUTH_FAILED';
+        console.error(JSON.stringify({ event: 'google_login_failed', code }));
+        res.redirect(303, `/?googleError=${code}${invitation ? `#invite=${invitation}` : ''}`);
+      }
+    });
+  }
   api.post('/auth/register-invited', loginLimiter, async (req, res) => {
     const input = invitationInput
       .extend({ name: z.string().trim().min(2).max(100), password: password.min(12) })
       .parse(req.body);
-    const invite = await get(`INVITE#${digest(input.token)}`, 'INVITE');
+    const inviteKey = `INVITE#${digest(input.token)}`;
+    const invite = await get(inviteKey, 'INVITE');
     check(
       invite && !invite.acceptedAt && invite.expiresAt > Date.now(),
       404,
@@ -260,11 +510,16 @@ export function createApp() {
       'ACCOUNT_EXISTS',
       'Este e-mail já tem conta. Entre para aceitar o convite.',
     );
+    const passwordHash = await hash(input.password, 12);
+    if (googleEnabled) {
+      await registerInvitedAccount(inviteKey, invite, input.name, { passwordHash });
+      return void res.status(201).json({ ok: true });
+    }
     const id = randomUUID();
     await put(
       userKey(id),
       'PROFILE',
-      { id, name: input.name, email: invite.email, passwordHash: await hash(input.password, 12) },
+      { id, name: input.name, email: invite.email, passwordHash },
       true,
     );
     await put(`EMAIL#${invite.email}`, 'USER', { userId: id }, true);
@@ -273,7 +528,7 @@ export function createApp() {
       organizationId: invite.organizationId,
       role: 'DRIVER',
     });
-    await put(`INVITE#${digest(input.token)}`, 'INVITE', { ...invite, acceptedAt: now() });
+    await put(inviteKey, 'INVITE', { ...invite, acceptedAt: now() });
     res.status(201).json({ ok: true });
   });
   api.use(async (req, res, next) => {
@@ -308,12 +563,39 @@ export function createApp() {
       memberships: await userMemberships(res.locals.user.id),
     }),
   );
-  api.post('/auth/logout', async (_req, res) => {
+  api.post('/auth/logout', async (req, res) => {
     for (const membership of await userMemberships(res.locals.user.id)) {
       await audit(membership.organizationId, res.locals.user.id, 'LOGOUT');
     }
+    const endpoint = pushEndpoint.safeParse(req.body?.pushEndpoint);
+    if (endpoint.success)
+      await removeOwned(pushPartition, subscriptionKey(endpoint.data), res.locals.user.id);
     await remove(`SESSION#${res.locals.sessionHash}`, 'SESSION');
     res.clearCookie('autokeep_session', { path: '/', httpOnly: true, sameSite: 'strict' });
+    res.status(204).end();
+  });
+  api.get('/push/config', (_req, res) => res.json({ publicKey: pushPublicKey ?? null }));
+  api.post('/push/subscription', async (req, res) => {
+    check(pushPublicKey, 503, 'PUSH_DISABLED', 'Notificações push indisponíveis neste ambiente.');
+    const { endpoint, keys } = pushSubscription.parse(req.body);
+    const key = subscriptionKey(endpoint);
+    const userId = res.locals.user.id;
+    const existing = await get(pushPartition, key);
+    if (existing) {
+      check(
+        existing.userId === userId,
+        409,
+        'PUSH_ALREADY_LINKED',
+        'Este navegador está vinculado a outra conta.',
+      );
+    } else {
+      await put(pushPartition, key, { userId, endpoint, ...keys }, true);
+    }
+    res.status(204).end();
+  });
+  api.delete('/push/subscription', async (req, res) => {
+    const endpoint = pushEndpoint.parse(req.body?.endpoint);
+    await removeOwned(pushPartition, subscriptionKey(endpoint), res.locals.user.id);
     res.status(204).end();
   });
   api.get('/me/organizations', async (_req, res) =>
@@ -405,7 +687,7 @@ export function createApp() {
     );
     res.json({ vehicles: await Promise.all(visible.map(presentCar)) });
   });
-  api.post(`${org}/vehicles`, async (req, res) => {
+  api.post(`${org}/vehicles`, admin, async (req, res) => {
     const input = createVehicleSchema.parse(req.body);
     const id = randomUUID(),
       time = now(),
@@ -691,8 +973,7 @@ export function createApp() {
       const event = `${v.id}:${v.lastOilChangeDate}:${v.status.level}:${v.calibrationDue}`;
       const id = digest(event),
         key = `NOTICE#${id}`;
-      let notification = await get(partition, key);
-      if (!notification) {
+      if (!(await get(partition, key))) {
         const title =
           v.status.level === 'DUE'
             ? 'Hora de trocar o óleo'
@@ -703,28 +984,18 @@ export function createApp() {
           v.status.level === 'OK'
             ? `${v.name}: registre uma nova leitura para calibrar a previsão.`
             : `${v.name} · ${v.plate}: ${Math.max(0, Math.floor(v.status.distanceRemainingKm))} km ou ${Math.max(0, v.status.daysRemaining)} dias para a troca.`;
-        notification = {
+        const notification = {
           id,
           vehicleId: v.id,
           title,
           body,
           createdAt: now(),
           readAt: null,
-          emailSentAt: null,
         };
         try {
           await put(partition, key, notification, true);
         } catch (error) {
           if (!isConditionalFailure(error)) throw error;
-          notification = await get(partition, key);
-        }
-      }
-      if (notification && !notification.emailSentAt && process.env.SMTP_HOST) {
-        try {
-          await sendLocalMail(user.email, notification.title, notification.body);
-          await put(partition, key, { ...notification, emailSentAt: now() });
-        } catch {
-          console.error(JSON.stringify({ event: 'notification_mail_failed' }));
         }
       }
     }

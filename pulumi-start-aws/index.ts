@@ -11,7 +11,15 @@ const accountId = config.require('accountId');
 const tableName = config.require('tableName');
 const functionName = config.require('functionName');
 const roleArn = config.require('roleArn');
-const hostingEnabled = stack === 'prod' && config.getBoolean('hostingEnabled') === true;
+const hostingEnabled = config.getBoolean('hostingEnabled') === true;
+const googleClientId = config.get('googleClientId');
+const googleSecretArn = config.get('googleClientSecretArn');
+const pushEnabled = stack === 'dev' && config.getBoolean('pushEnabled') === true;
+if (pushEnabled && !hostingEnabled)
+  throw new Error('Ative hostingEnabled na stack dev para usar Web Push.');
+const pushPublicKey = pushEnabled ? config.require('pushPublicKey') : '';
+const pushPrivateKey = pushEnabled ? config.requireSecret('pushPrivateKey') : pulumi.output('');
+const pushSubject = pushEnabled ? config.require('pushSubject') : '';
 if (aws.config.region !== 'us-east-1') throw new Error('A região autorizada é us-east-1.');
 if (tableName !== `autokeep-${stack}` || functionName !== `autokeep-api-${stack}`)
   throw new Error('Os recursos devem corresponder à stack selecionada.');
@@ -85,11 +93,35 @@ const currentLambda = hostingEnabled
   ? aws.lambda.getFunctionOutput({ functionName }, { provider })
   : undefined;
 const appOrigin = hostingEnabled ? config.require('appOrigin') : undefined;
-const preservedEnvironment = currentLambda?.environment.apply((environment) => ({
-  ...environment.variables,
-  DYNAMODB_TABLE: tableName,
-  APP_ORIGIN: appOrigin!,
-}));
+if (googleClientId || googleSecretArn) {
+  const expectedArnPrefix = `arn:aws:secretsmanager:us-east-1:${accountId}:secret:`;
+  if (!hostingEnabled || !googleClientId || !googleSecretArn?.startsWith(expectedArnPrefix))
+    throw new Error('Configure hostingEnabled, googleClientId e o ARN do segredo para a stack selecionada.');
+  const publicUrl = new URL(appOrigin!);
+  if (publicUrl.origin !== appOrigin || publicUrl.protocol !== 'https:')
+    throw new Error('appOrigin do OAuth deve ser uma origem HTTPS sem caminho ou barra final.');
+}
+const preservedEnvironment =
+  currentLambda &&
+  pulumi
+    .all([currentLambda.environment, pushPrivateKey])
+    .apply(([environment, vapidPrivateKey]) => ({
+      ...environment.variables,
+      DYNAMODB_TABLE: tableName,
+      APP_ORIGIN: appOrigin!,
+      ...(googleClientId && googleSecretArn
+        ? { GOOGLE_CLIENT_ID: googleClientId, GOOGLE_CLIENT_SECRET_ARN: googleSecretArn }
+        : stack === 'dev'
+          ? { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET_ARN: '' }
+          : {}),
+      ...(stack === 'dev'
+        ? {
+            PUSH_PUBLIC_KEY: pushPublicKey,
+            PUSH_PRIVATE_KEY: vapidPrivateKey,
+            PUSH_SUBJECT: pushSubject,
+          }
+        : {}),
+    }));
 
 if (hostingEnabled && !existsSync(lambdaCodePath)) {
   throw new Error('Execute npm run build:lambda antes de ativar hostingEnabled.');
@@ -104,7 +136,7 @@ const api = new aws.lambda.Function(
     runtime: 'nodejs24.x',
     handler: 'index.handler',
     memorySize: 256,
-    timeout: 15,
+    timeout: pushEnabled ? 60 : 15,
     architectures: ['x86_64'],
     ephemeralStorage: { size: 512 },
     loggingConfig: { logFormat: 'Text', logGroup: `/aws/lambda/${functionName}` },
@@ -124,7 +156,7 @@ const api = new aws.lambda.Function(
     protect: true,
     retainOnDelete: true,
     additionalSecretOutputs: ['environment'],
-    // Keep existing code and secret environment untouched until AWS hosting is enabled.
+    // Adopting an existing function must preserve its code and environment.
     ignoreChanges: hostingEnabled
       ? ['tags', 'tagsAll', 'vpcConfig', 'tracingConfig']
       : [
@@ -142,6 +174,55 @@ const api = new aws.lambda.Function(
         ],
   },
 );
+
+if (googleSecretArn) {
+  new aws.iam.RolePolicy(
+    'google-oauth-secret-read',
+    {
+      role: functionName,
+      policy: JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: 'secretsmanager:GetSecretValue',
+            Resource: googleSecretArn,
+          },
+        ],
+      }),
+    },
+    { provider },
+  );
+}
+
+if (pushEnabled) {
+  const rule = new aws.cloudwatch.EventRule(
+    'maintenance-push',
+    {
+      name: 'autokeep-dev-maintenance-push',
+      scheduleExpression: 'rate(15 minutes)',
+    },
+    { provider },
+  );
+  const invoke = new aws.lambda.Permission(
+    'allow-maintenance-push',
+    {
+      action: 'lambda:InvokeFunction',
+      function: api.name,
+      principal: 'events.amazonaws.com',
+      sourceArn: rule.arn,
+    },
+    { provider },
+  );
+  new aws.cloudwatch.EventTarget(
+    'maintenance-push-target',
+    {
+      rule: rule.name,
+      arn: api.arn,
+    },
+    { provider, dependsOn: [invoke] },
+  );
+}
 
 let dnsZone: aws.route53.Zone | undefined;
 if (stack === 'prod') {
@@ -178,7 +259,7 @@ if (hostingEnabled) {
   if (!existsSync(webPath))
     throw new Error('Execute npm run build antes de ativar hostingEnabled.');
 
-  const bucketName = `autokeep-prod-web-${accountId}`;
+  const bucketName = `autokeep-${stack}-web-${accountId}`;
   const bucket = new aws.s3.BucketV2(
     'web',
     {
@@ -209,7 +290,7 @@ if (hostingEnabled) {
   const originAccess = new aws.cloudfront.OriginAccessControl(
     'web-origin-access',
     {
-      name: 'autokeep-prod-web',
+      name: `autokeep-${stack}-web`,
       description: 'Private S3 access for AutoKeep CloudFront distribution',
       originAccessControlOriginType: 's3',
       signingBehavior: 'always',
@@ -237,7 +318,7 @@ if (hostingEnabled) {
   const httpApi = new aws.apigatewayv2.Api(
     'http-api',
     {
-      name: 'autokeep-prod-http',
+      name: `autokeep-${stack}-http`,
       protocolType: 'HTTP',
       description: 'AutoKeep application API',
     },
@@ -287,7 +368,7 @@ if (hostingEnabled) {
   const spaRewrite = new aws.cloudfront.Function(
     'spa-rewrite',
     {
-      name: 'autokeep-prod-spa-rewrite',
+      name: `autokeep-${stack}-spa-rewrite`,
       runtime: 'cloudfront-js-2.0',
       comment: 'Serve index.html for production client-side routes',
       publish: true,
@@ -299,7 +380,7 @@ if (hostingEnabled) {
     },
     { provider, protect: true, retainOnDelete: true },
   );
-  const customDomainEnabled = config.getBoolean('customDomainEnabled') === true;
+  const customDomainEnabled = stack === 'prod' && config.getBoolean('customDomainEnabled') === true;
   let validatedCertificateArn: pulumi.Input<string> | undefined;
   if (customDomainEnabled) {
     if (!dnsZone) throw new Error('O domínio customizado só pode ser habilitado na stack prod.');
@@ -472,3 +553,6 @@ export const staticBucketName = hostingBucketName;
 export const apiGatewayUrl = hostingApiUrl;
 export const cloudFrontUrl = hostingCloudFrontUrl;
 export const cloudFrontDistributionId = hostingDistributionId;
+export const googleCallbackUrl = googleClientId
+  ? new URL('/api/auth/google/callback', appOrigin!).href
+  : undefined;
