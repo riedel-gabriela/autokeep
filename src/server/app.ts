@@ -340,6 +340,7 @@ let initialized: Promise<void> | undefined;
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', process.env.AWS_LAMBDA_FUNCTION_NAME ? 1 : false);
   const api = express.Router();
   api.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -436,6 +437,7 @@ export function createApp() {
       if (req.method !== 'GET') return void res.sendStatus(405);
       res.setHeader('Referrer-Policy', 'no-referrer');
       let invitation: string | undefined;
+      let stage = 'read_oauth_state';
       try {
         const browserToken = invitationInput.shape.token.safeParse(
           parseCookie(req.headers.cookie || '')[oauthCookie],
@@ -455,13 +457,17 @@ export function createApp() {
         invitation = attempt.invitation;
         const callback = new URL(googleCallbackPath, origin);
         callback.search = new URL(req.originalUrl, origin).search;
-        const tokens = await oidc.authorizationCodeGrant(await googleConfiguration(), callback, {
+        stage = 'load_google_config';
+        const config = await googleConfiguration();
+        stage = 'exchange_google_code';
+        const tokens = await oidc.authorizationCodeGrant(config, callback, {
           expectedState: attempt.state,
           expectedNonce: attempt.nonce,
           pkceCodeVerifier: attempt.verifier,
         });
         const claims = tokens.claims();
         check(claims?.sub, 400, 'OAUTH_IDENTITY', 'Identidade Google inválida.');
+        stage = 'find_google_identity';
         const identityKey = `OIDC#${digest(JSON.stringify([claims.iss, claims.sub]))}`;
         const identity = await get(identityKey, 'USER');
         let userId: string;
@@ -474,6 +480,7 @@ export function createApp() {
             'Use um e-mail Google verificado.',
           );
           if (attempt.userId) {
+            stage = 'link_google_identity';
             const user = await get(userKey(attempt.userId), 'PROFILE');
             check(
               user && user.email === address.data && (!identity || identity.userId === user.id),
@@ -484,6 +491,7 @@ export function createApp() {
             if (!identity) await put(identityKey, 'USER', { userId: user.id }, true);
             userId = user.id;
           } else {
+            stage = 'create_or_find_user';
             const givenName = typeof claims.name === 'string' && claims.name.trim();
             const name = (givenName || address.data).slice(0, 100);
             if (attempt.workspace) {
@@ -514,12 +522,14 @@ export function createApp() {
         } else {
           userId = identity.userId;
         }
+        stage = 'open_session';
         check(await get(userKey(userId), 'PROFILE'), 403, 'OAUTH_IDENTITY', 'Conta indisponível.');
         await openSession(res, userId);
         res.redirect(303, invitation ? `/#invite=${invitation}` : '/');
       } catch (error) {
         const code = error instanceof AppError ? error.code : 'OAUTH_FAILED';
-        console.error(JSON.stringify({ event: 'google_login_failed', code }));
+        const errorName = error instanceof Error ? error.name : 'UnknownError';
+        console.error(JSON.stringify({ event: 'google_login_failed', stage, code, errorName }));
         res.redirect(303, `/?googleError=${code}${invitation ? `#invite=${invitation}` : ''}`);
       }
     });
