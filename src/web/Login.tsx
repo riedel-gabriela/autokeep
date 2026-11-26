@@ -7,13 +7,11 @@ import { localDevelopment as local } from './environment.js';
 import { ThemeToggle } from './ThemeToggle.js';
 
 const googleErrors: Record<string, string> = {
-  GOOGLE_ACCOUNT_UNLINKED:
-    'Crie uma conta com Google, vincule uma conta existente ou abra o convite da sua frota.',
   INVITATION_INVALID: 'Confira a validade do convite e use a conta Google do e-mail convidado.',
   OAUTH_LINK: 'Use a conta Google com o mesmo e-mail da sua conta AutoKeep.',
   OAUTH_EMAIL: 'Use uma conta Google com e-mail verificado.',
   REGISTRATION_CONFLICT:
-    'Esse e-mail já tem conta ou o convite já foi usado. Se você já tem conta, entre ou vincule o Google.',
+    'Este e-mail já está associado a uma conta. Entre com a conta Google vinculada a ela.',
 };
 
 export function Login({
@@ -32,6 +30,7 @@ export function Login({
     [busy, setBusy] = useState(false),
     [googleEnabled, setGoogleEnabled] = useState(false),
     [passwordLoginEnabled, setPasswordLoginEnabled] = useState(local),
+    [providerConfigurationLoaded, setProviderConfigurationLoaded] = useState(false),
     [demoCredentialsAvailable, setDemoCredentialsAvailable] = useState(false),
     [error, setError] = useState(() => {
       const code = new URLSearchParams(location.search).get('googleError');
@@ -46,6 +45,8 @@ export function Login({
   const [signup, setSignup] = useState(false);
   const [workspaceKind, setWorkspaceKind] = useState<'PERSONAL' | 'FLEET'>('PERSONAL');
   const [workspaceName, setWorkspaceName] = useState('');
+  const googleOnly =
+    !local || (providerConfigurationLoaded && googleEnabled && !passwordLoginEnabled);
   useEffect(() => {
     const controller = new AbortController();
     void api<{ google: boolean; password: boolean }>('/auth/providers', {
@@ -55,7 +56,8 @@ export function Login({
         setGoogleEnabled(google);
         setPasswordLoginEnabled(password);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setProviderConfigurationLoaded(true));
     void api<{ email: string; password: string }>('/auth/demo-credentials', {
       signal: controller.signal,
     })
@@ -176,7 +178,7 @@ export function Login({
               Conta criada! Entre com o e-mail do convite e sua nova senha.
             </div>
           )}
-          {invitation && (
+          {!googleOnly && invitation && (
             <div className="info-note">
               {register ? 'Já tem uma conta?' : 'Recebeu um convite?'}{' '}
               <button
@@ -191,7 +193,36 @@ export function Login({
               </button>
             </div>
           )}
-          {signup ? (
+          {googleOnly ? (
+            <>
+              {error && (
+                <div className="form-error" role="alert">
+                  {error}
+                </div>
+              )}
+              {googleEnabled ? (
+                <button
+                  className="button primary login-submit"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void startGoogle()}
+                >
+                  {busy ? (
+                    <LoaderCircle className="spin" size={18} />
+                  ) : (
+                    <>
+                      {invitation ? 'Aceitar convite com Google' : 'Entrar com Google'}
+                      <ArrowRight size={18} />
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="info-note" role="status">
+                  O login Google ainda não está configurado neste ambiente.
+                </div>
+              )}
+            </>
+          ) : signup ? (
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -331,7 +362,7 @@ export function Login({
                 : 'O login Google ainda não está configurado neste ambiente.'}
             </div>
           )}
-          {googleEnabled && !signup && (
+          {!googleOnly && googleEnabled && !signup && (
             <button
               className="button secondary"
               type="button"
@@ -341,7 +372,7 @@ export function Login({
               {register ? 'Aceitar convite com Google' : 'Entrar com Google'}
             </button>
           )}
-          {googleEnabled && !invitation && !signup && (
+          {!googleOnly && googleEnabled && !invitation && !signup && (
             <button
               className="button secondary"
               type="button"
@@ -386,10 +417,12 @@ export function Login({
               )}
             </div>
           )}
-          <div className="login-footnote">
-            <ShieldCheck size={14} />{' '}
-            {local ? 'Ambiente local de desenvolvimento' : 'Ambiente de demonstração'}
-          </div>
+          {!googleOnly && (
+            <div className="login-footnote">
+              <ShieldCheck size={14} />
+              {local ? 'Ambiente local de desenvolvimento' : 'Ambiente de desenvolvimento'}
+            </div>
+          )}
         </div>
       </section>
     </main>

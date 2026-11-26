@@ -113,12 +113,11 @@ async function openSession(res: Response, userId: string) {
 }
 
 async function registerGoogleInvite(
-  token: string | undefined,
+  token: string,
   address: string,
   name: string,
   identityKey: string,
 ) {
-  check(token, 403, 'GOOGLE_ACCOUNT_UNLINKED', 'Crie uma conta ou vincule uma conta existente.');
   const inviteKey = `INVITE#${digest(token)}`;
   const invite = await get(inviteKey, 'INVITE');
   check(
@@ -487,14 +486,29 @@ export function createApp() {
           } else {
             const givenName = typeof claims.name === 'string' && claims.name.trim();
             const name = (givenName || address.data).slice(0, 100);
-            userId = attempt.workspace
-              ? await registerGoogleWorkspace(
-                  workspaceSignup.parse(JSON.parse(attempt.workspace)),
+            if (attempt.workspace) {
+              userId = await registerGoogleWorkspace(
+                workspaceSignup.parse(JSON.parse(attempt.workspace)),
+                address.data,
+                name,
+                identityKey,
+              );
+            } else if (invitation) {
+              userId = await registerGoogleInvite(invitation, address.data, name, identityKey);
+            } else {
+              const existingUser = await userByEmail(address.data);
+              if (existingUser) {
+                await put(identityKey, 'USER', { userId: existingUser.id }, true);
+                userId = existingUser.id;
+              } else {
+                userId = await registerGoogleWorkspace(
+                  { kind: 'PERSONAL', name: 'Minha garagem' },
                   address.data,
                   name,
                   identityKey,
-                )
-              : await registerGoogleInvite(invitation, address.data, name, identityKey);
+                );
+              }
+            }
             invitation = undefined;
           }
         } else {
