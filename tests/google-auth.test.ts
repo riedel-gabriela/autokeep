@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
@@ -47,6 +47,8 @@ test('Google login blocks state mismatch and replay, and public signup creates o
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   let nonce: string | null;
   let exchanges = 0;
+  let verified = true;
+  let subject = 'google-driver';
   const browserFetch = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', async (input) => {
     const url = new URL(String(input));
@@ -70,9 +72,9 @@ test('Google login blocks state mismatch and replay, and public signup creates o
       encode({
         iss: issuer,
         aud: clientId,
-        sub: 'google-driver',
+        sub: subject,
         email: 'user@example.com',
-        email_verified: true,
+        email_verified: verified,
         nonce,
         iat: timestamp,
         exp: timestamp + 300,
@@ -178,4 +180,45 @@ test('Google login blocks state mismatch and replay, and public signup creates o
   assert.ok(memberships.every((item) => item.role.S === 'ADMIN'));
   assert.equal(memberships[0].pk.S, organization.pk.S);
   assert.equal(memberships[1].sk.S, organization.pk.S);
+
+  subject = 'google-personal';
+  const personal = await begin({ workspace: { kind: 'PERSONAL', name: 'Minha garagem' } });
+  assert.equal((await personal()).headers.get('location'), '/');
+  assert.ok(
+    registration.some((item) => item.kind?.S === 'PERSONAL' && item.name.S === 'Minha garagem'),
+  );
+  assert.ok(registration.filter((item) => item.role).every((item) => item.role.S === 'ADMIN'));
+
+  subject = 'google-invite';
+  registration = [];
+  verified = false;
+  const unverified = await begin({ workspace: { kind: 'PERSONAL', name: 'Garagem' } });
+  assert.equal((await unverified()).headers.get('location'), '/?googleError=OAUTH_EMAIL');
+  assert.equal(registration.length, 0);
+  verified = true;
+
+  const invitation = 'A'.repeat(43);
+  const invitePk = `INVITE#${createHash('sha256').update(invitation).digest('hex')}`;
+  const inviteItem = {
+    pk: { S: invitePk },
+    sk: { S: 'INVITE' },
+    organizationId: { S: 'existing-fleet' },
+    expiresAt: { N: String(Date.now() + 60_000) },
+    email: { S: 'other@example.com' },
+  };
+  const inviteKey = JSON.stringify([invitePk, 'INVITE']);
+  items.set(inviteKey, inviteItem);
+  const wrongEmail = await begin({ invitation });
+  assert.equal(
+    new URL((await wrongEmail()).headers.get('location')!, issuer).searchParams.get('googleError'),
+    'INVITATION_INVALID',
+  );
+  assert.equal(registration.length, 0);
+  items.set(inviteKey, { ...inviteItem, email: { S: 'user@example.com' } });
+  const invited = await begin({ invitation });
+  assert.equal((await invited()).headers.get('location'), '/');
+  assert.ok(
+    registration.some((item) => item.pk.S === 'ORG#existing-fleet' && item.role?.S === 'DRIVER'),
+  );
+  assert.ok(registration.some((item) => item.pk.S === invitePk && item.acceptedAt?.S));
 });

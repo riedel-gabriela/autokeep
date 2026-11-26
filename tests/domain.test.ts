@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { dailyAverage, enrichVehicle, type Reading } from '../src/shared/domain.js';
+import { DAY, dailyAverage, enrichVehicle, type Reading } from '../src/shared/domain.js';
 import { maintenanceNotice, pushEndpoint } from '../src/server/push.js';
 
 const now = new Date('2026-11-17T12:00:00Z');
@@ -102,4 +102,97 @@ test('push aceita somente endpoints HTTPS de provedores de navegador', () => {
   ]) {
     assert.equal(pushEndpoint.safeParse(endpoint).success, false);
   }
+});
+
+test('distância muda de status exatamente a 500 km e a 0 km', () => {
+  for (const [remaining, level, trigger] of [
+    [501, 'OK', null],
+    [500, 'WARNING', 'DISTANCE'],
+    [1, 'WARNING', 'DISTANCE'],
+    [0, 'DUE', 'DISTANCE'],
+    [-1, 'DUE', 'DISTANCE'],
+  ] as const) {
+    const { status } = enrichVehicle({ ...base, currentOdometer: 15000 - remaining }, now);
+    assert.equal(status.distanceRemainingKm, remaining);
+    assert.equal(status.level, level);
+    assert.equal(status.trigger, trigger);
+  }
+});
+
+test('tempo muda de status exatamente a 30 dias e a 0 dias', () => {
+  for (const [remaining, level, trigger] of [
+    [31, 'OK', null],
+    [30, 'WARNING', 'TIME'],
+    [1, 'WARNING', 'TIME'],
+    [0, 'DUE', 'TIME'],
+    [-1, 'DUE', 'TIME'],
+  ] as const) {
+    const lastOilChangeDate = new Date(+now - (365 - remaining) * DAY).toISOString();
+    const { status } = enrichVehicle({ ...base, lastOilChangeDate }, now);
+    assert.equal(status.daysRemaining, remaining);
+    assert.equal(status.level, level);
+    assert.equal(status.trigger, trigger);
+  }
+});
+
+test('o menor prazo projetado vence quando os dois critérios estão próximos', () => {
+  const source = {
+    ...base,
+    currentOdometer: 14500,
+    historicalEntries: [reading(16, 14400), reading(17, 14500)],
+  };
+  for (const [remaining, trigger] of [
+    [4, 'TIME'],
+    [5, 'DISTANCE'],
+    [6, 'DISTANCE'],
+  ] as const) {
+    const lastOilChangeDate = new Date(+now - (365 - remaining) * DAY).toISOString();
+    const { status } = enrichVehicle({ ...source, lastOilChangeDate }, now);
+    assert.equal(status.trigger, trigger);
+    assert.equal(
+      status.projectedDueDate,
+      new Date(+now + Math.min(remaining, 5) * DAY).toISOString(),
+    );
+  }
+});
+
+test('troca de óleo reinicia os limites e abre um novo ciclo de avisos', () => {
+  const previous = enrichVehicle({ ...base, currentOdometer: 15000 }, now);
+  const nextCycle = {
+    ...base,
+    currentOdometer: 15000,
+    lastOilChangeKm: 15000,
+    lastOilChangeDate: now.toISOString(),
+    oilType: 'SEMI_SYNTHETIC' as const,
+  };
+  const { status } = enrichVehicle(nextCycle, now);
+  assert.equal(status.distanceRemainingKm, 8000);
+  assert.equal(status.daysRemaining, 365);
+  assert.equal(status.level, 'OK');
+  const next = enrichVehicle({ ...nextCycle, currentOdometer: 23000 }, now);
+  assert.notEqual(maintenanceNotice(next)?.id, maintenanceNotice(previous)?.id);
+});
+
+test('histórico desordenado não é alterado e médias inválidas ficam em zero', () => {
+  const history = [reading(17, 500), reading(10, 0), reading(16, 450), reading(15, 300)];
+  assert.equal(dailyAverage(history), 100);
+  assert.deepEqual(
+    history.map(({ id }) => id),
+    ['17', '10', '16', '15'],
+  );
+  assert.equal(dailyAverage([reading(16, 10), reading(16, 20)]), 0);
+  assert.equal(dailyAverage([reading(16, 30), reading(17, 20)]), 0);
+});
+
+test('a calibração manual só vence após 30 dias com menos de três leituras', () => {
+  const source = { ...base, lastUpdateDate: new Date(+now - 30 * DAY).toISOString() };
+  assert.equal(enrichVehicle(source, new Date(+now - 1)).calibrationDue, false);
+  assert.equal(enrichVehicle(source, now).calibrationDue, true);
+  assert.equal(
+    enrichVehicle(
+      { ...source, historicalEntries: [reading(15, 1), reading(16, 2), reading(17, 3)] },
+      now,
+    ).calibrationDue,
+    false,
+  );
 });

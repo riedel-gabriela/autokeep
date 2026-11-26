@@ -45,6 +45,7 @@ Gere chaves VAPID com `npx web-push generate-vapid-keys --json` e configure
 
 ```sh
 npm test                  # testes unitários
+npm run test:coverage     # suíte rápida com cobertura por arquivo
 npm run test:integration  # API com DynamoDB Local descartável
 npm run build             # valida TypeScript e gera dist/web
 npm run build:lambda      # gera dist/autokeep-lambda.zip

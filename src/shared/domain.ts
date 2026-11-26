@@ -103,7 +103,11 @@ export function enrichVehicle(
   const timeDue = Date.parse(base.lastOilChangeDate) + 365 * DAY;
   const daysRemaining = Math.ceil((timeDue - now.getTime()) / DAY);
   const distanceDue =
-    avgDailyKm > 0 ? now.getTime() + (distanceRemainingKm / avgDailyKm) * DAY : Infinity;
+    avgDailyKm > 0
+      ? now.getTime() + (distanceRemainingKm / avgDailyKm) * DAY
+      : distanceRemainingKm <= 0
+        ? Math.min(now.getTime(), Date.parse(base.lastUpdateDate))
+        : Infinity;
   const trigger =
     distanceRemainingKm <= 0 || daysRemaining <= 0
       ? distanceDue <= timeDue
