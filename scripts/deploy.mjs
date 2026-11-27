@@ -17,7 +17,7 @@ export function validateDeploymentPreview(preview, stack) {
     if (type === 'pulumi:pulumi:Stack' && step.op === 'update') continue;
     if (type === 'aws:lambda/function:Function' && name === 'api' && step.op === 'update') {
       const changes = Object.keys(step.detailedDiff || {}).map((key) => key.split(/[.[]/)[0]);
-      if (changes.length > 0 && changes.every((key) => ['code', 'sourceCodeHash'].includes(key)))
+      if (changes.length > 0 && changes.every((key) => ['code', 'sourceCodeHash', 'lastModified'].includes(key)))
         continue;
     }
     if (
