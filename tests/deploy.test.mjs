@@ -16,7 +16,7 @@ test('CD permits code updates and static asset rotation in the existing stack', 
     {
       steps: [
         step('pulumi:pulumi:Stack', 'autokeep-prod'),
-        step(lambda, 'api', 'update', ['code', 'sourceCodeHash']),
+        step(lambda, 'api', 'update', ['code', 'sourceCodeHash', 'lastModified']),
         step(object, 'web-012345abcdef', 'create'),
         step(object, 'web-abcdef012345', 'delete'),
       ],

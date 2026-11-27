@@ -28,8 +28,8 @@ vazias na região consultada. Não havia regras EventBridge ativas.
 - Removidas variáveis antigas de demonstração da Lambda de produção.
 - Dev reutiliza sua Function URL e permissões existentes, agora adotadas pelo
   Pulumi. Nenhuma segunda CDN, API Gateway, zona DNS ou bucket foi criada.
-- Repositório sem adapter/configuração Vercel, Mailpit, senha de demonstração,
-  convites e gestão de frotas. O container local Mailpit foi removido.
+- Removidos Mailpit, senha de demonstração, convites e gestão de frotas.
+  O container local Mailpit também foi removido.
 - Dados legados permanecem no DynamoDB, inacessíveis pela interface pessoal;
   não houve exclusão de tabelas ou de dados de usuários.
 

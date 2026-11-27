@@ -487,48 +487,6 @@ fieldset {
   margin-top: auto;
   padding-top: 35px;
 }
-.care-note {
-  border-radius: 11px;
-  background: var(--primary);
-  color: #e4e6ea;
-  padding: 20px 16px;
-  position: relative;
-  overflow: hidden;
-}
-.care-note:before {
-  content: '';
-  position: absolute;
-  border: 1px solid #4b5462;
-  border-radius: 50%;
-  width: 85px;
-  height: 85px;
-  right: -40px;
-  top: -30px;
-}
-.care-note > span:first-child {
-  display: flex;
-  color: var(--accent);
-  margin-bottom: 14px;
-}
-.care-note h3 {
-  font-size: 13px;
-  letter-spacing: -0.1px;
-}
-.care-note p {
-  font-size: 10px;
-  color: #c1cbd8;
-  margin-top: 8px;
-  line-height: 1.7;
-  max-width: 150px;
-}
-.note-line {
-  display: block;
-  height: 3px;
-  width: 28px;
-  background: var(--accent);
-  border-radius: 2px;
-  margin-top: 18px;
-}
 .profile {
   border-top: 1px solid var(--line);
   padding: 18px 5px 2px;
@@ -737,9 +695,6 @@ fieldset {
 }
 .content-footer img {
   opacity: 0.5;
-}
-.footer-dot {
-  padding: 0 3px;
 }
 .mobile-menu,
 .mobile-close,
@@ -2189,10 +2144,6 @@ fieldset {
     gap: 13px;
     padding: 13px;
   }
-  .care-note p {
-    max-width: 180px;
-    font-size: 11px;
-  }
   .profile strong {
     font-size: 12px;
   }
@@ -3084,10 +3035,11 @@ a:focus-visible {
   }
 }
 
-
 /* Make sign-in surfaces follow the selected theme. */
 .login.login-google-only {
-  --login-background: radial-gradient(ellipse at 50% 6%, rgb(255 177 74 / 16%), transparent 35%), linear-gradient(145deg, #f5f6f8 0%, #e9edf1 55%, #f5f6f8 100%);
+  --login-background:
+    radial-gradient(ellipse at 50% 6%, rgb(255 177 74 / 16%), transparent 35%),
+    linear-gradient(145deg, #f5f6f8 0%, #e9edf1 55%, #f5f6f8 100%);
   --login-card: #fff;
   --login-card-border: #e1e5e9;
   --login-text: #202a35;
@@ -3100,7 +3052,9 @@ a:focus-visible {
   background: var(--login-background);
 }
 :root[data-theme='dark'] .login.login-google-only {
-  --login-background: radial-gradient(ellipse at 50% 6%, rgb(255 177 74 / 13%), transparent 35%), linear-gradient(145deg, #111820 0%, #1c2733 55%, #111820 100%);
+  --login-background:
+    radial-gradient(ellipse at 50% 6%, rgb(255 177 74 / 13%), transparent 35%),
+    linear-gradient(145deg, #111820 0%, #1c2733 55%, #111820 100%);
   --login-card: #1b222d;
   --login-card-border: #323f50;
   --login-text: #ecf0f5;
@@ -3111,15 +3065,32 @@ a:focus-visible {
   --login-button-hover: #ffc16e;
   --login-button-text: #202a35;
 }
-.login-google-only .login-form-panel > .theme-toggle { color: var(--login-toggle); }
+.login-google-only .login-form-panel > .theme-toggle {
+  color: var(--login-toggle);
+}
 .login-google-only .mobile-brand .brand,
 .login-google-only .login-form-inner,
-.login-google-only .login-form-inner h2 { color: var(--login-text); }
+.login-google-only .login-form-inner h2 {
+  color: var(--login-text);
+}
 .login-google-only .mobile-brand .brand small,
 .login-google-only .login-form-inner > p,
-.login-google-only .login-security-note { color: var(--login-muted); }
-.login-google-only .login-form-inner { border-color: var(--login-card-border); background: var(--login-card); box-shadow: 0 28px 90px rgb(0 0 0 / 18%); }
+.login-google-only .login-security-note {
+  color: var(--login-muted);
+}
+.login-google-only .login-form-inner {
+  border-color: var(--login-card-border);
+  background: var(--login-card);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 18%);
+}
 .login-google-only .login-form-inner .eyebrow,
-.login-google-only .login-security-note svg { color: var(--login-eyebrow); }
-.login-google-only .login-submit { color: var(--login-button-text); background: var(--login-button); }
-.login-google-only .login-submit:hover:not(:disabled) { background: var(--login-button-hover); }
+.login-google-only .login-security-note svg {
+  color: var(--login-eyebrow);
+}
+.login-google-only .login-submit {
+  color: var(--login-button-text);
+  background: var(--login-button);
+}
+.login-google-only .login-submit:hover:not(:disabled) {
+  background: var(--login-button-hover);
+}

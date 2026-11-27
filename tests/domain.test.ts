@@ -101,3 +101,10 @@ test('push aceita somente endpoints HTTPS de provedores de navegador', () => {
     assert.equal(pushEndpoint.safeParse(endpoint).success, false);
   }
 });
+
+test('limite de distância vencido sem média não é classificado como prazo temporal', () => {
+  const vehicle = enrichVehicle({ ...base, currentOdometer: 15000 }, now);
+  assert.equal(vehicle.status.level, 'DUE');
+  assert.equal(vehicle.status.trigger, 'DISTANCE');
+  assert.equal(vehicle.status.projectedDueDate, now.toISOString());
+});

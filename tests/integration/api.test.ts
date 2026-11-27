@@ -201,7 +201,7 @@ test('personal garage: development login, ownership, vehicle lifecycle, notifica
         await request(
           `${car}/odometer`,
           'POST',
-          { odometer: 15100, source: 'OBD2', measuredAt: new Date().toISOString() },
+          { odometer: 15100, source: 'MANUAL', measuredAt: new Date().toISOString() },
           cookie,
         )
       ).status,
@@ -221,7 +221,7 @@ test('personal garage: development login, ownership, vehicle lifecycle, notifica
     const history = (await (
       await request(`${car}/history`, 'GET', undefined, cookie)
     ).json()) as any;
-    assert.ok(history.readings.some((r: any) => r.odometer === 15100 && r.source === 'OBD2'));
+    assert.ok(history.readings.some((r: any) => r.odometer === 15100 && r.source === 'MANUAL'));
     assert.ok(
       history.oilChanges.some((o: any) => o.odometer === 15100 && o.oilType === 'SYNTHETIC'),
     );

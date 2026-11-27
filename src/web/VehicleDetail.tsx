@@ -12,6 +12,7 @@ import type { OilChange, Reading, Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
 import { api } from './api.js';
 import { CarArt, date, km, Modal, Progress, Status } from './components.js';
+import { visibleReadings } from './history.js';
 import type { DialogState } from './forms.js';
 
 export function VehicleDetail({
@@ -31,6 +32,8 @@ export function VehicleDetail({
     [error, setError] = useState('');
   useEffect(() => {
     let active = true;
+    setHistory(null);
+    setError('');
     api<{ readings: Reading[]; oilChanges: OilChange[] }>(
       `/organizations/${org}/vehicles/${v.id}/history`,
     )
@@ -57,13 +60,13 @@ export function VehicleDetail({
       oilType: change.oilType,
       actorName: change.actorName,
     })),
-    ...(history?.readings ?? []).map((reading) => ({
+    ...visibleReadings(history?.readings ?? [], history?.oilChanges ?? []).map((reading) => ({
       id: `reading-${reading.id}`,
       kind: 'reading' as const,
       date: reading.measuredAt,
       odometer: reading.odometer,
     })),
-  ].sort((a, b) => b.date.localeCompare(a.date));
+  ].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   return (
     <Modal title={v.name} subtitle={`${v.plate} · ${v.year}`} onClose={onClose}>
       <div className="vehicle-detail">

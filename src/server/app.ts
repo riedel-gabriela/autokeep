@@ -176,7 +176,7 @@ async function presentCar(car: Record<string, any>): Promise<Vehicle> {
     lastUpdateDate: car.lastUpdateDate,
     lastOilChangeKm: car.lastOilChangeKm,
     lastOilChangeDate: car.lastOilChangeDate,
-    historicalEntries: history.slice(0, 3).map((r) => ({
+    historicalEntries: history.map((r) => ({
       id: r.id,
       odometer: r.odometer,
       measuredAt: r.measuredAt,
@@ -566,11 +566,11 @@ export function createApp() {
     );
     const all = await readings(v.id);
     const lower = all
-      .filter((r) => r.measuredAt <= input.changedAt)
-      .sort((a, b) => b.measuredAt.localeCompare(a.measuredAt))[0];
+      .filter((r) => Date.parse(r.measuredAt) <= Date.parse(input.changedAt))
+      .sort((a, b) => Date.parse(b.measuredAt) - Date.parse(a.measuredAt))[0];
     const upper = all
-      .filter((r) => r.measuredAt >= input.changedAt)
-      .sort((a, b) => a.measuredAt.localeCompare(b.measuredAt))[0];
+      .filter((r) => Date.parse(r.measuredAt) >= Date.parse(input.changedAt))
+      .sort((a, b) => Date.parse(a.measuredAt) - Date.parse(b.measuredAt))[0];
     check(
       (!lower || input.odometer >= lower.odometer) && (!upper || input.odometer <= upper.odometer),
       400,
@@ -590,7 +590,7 @@ export function createApp() {
       lastOilChangeKm: input.odometer,
       lastOilChangeDate: input.changedAt,
     };
-    if (input.changedAt > v.lastUpdateDate) {
+    if (Date.parse(input.changedAt) > Date.parse(v.lastUpdateDate)) {
       check(
         input.odometer >= v.currentOdometer,
         400,

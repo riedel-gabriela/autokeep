@@ -3,7 +3,8 @@ export const uuid = z.uuid();
 export const odometer = z.number().min(0).max(9_999_999.9).multipleOf(0.1);
 export const pastDate = z.iso
   .datetime({ offset: true })
-  .refine((v) => Date.parse(v) <= Date.now(), 'A data não pode estar no futuro.');
+  .refine((v) => Date.parse(v) <= Date.now(), 'A data não pode estar no futuro.')
+  .transform((value) => new Date(value).toISOString());
 export const oilType = z.enum(['MINERAL', 'SEMI_SYNTHETIC', 'SYNTHETIC']);
 export const createVehicleSchema = z
   .object({
@@ -19,7 +20,7 @@ export const createVehicleSchema = z
       .min(1950)
       .max(new Date().getUTCFullYear() + 1),
     oilType,
-    trackingMode: z.enum(['MANUAL', 'OBD2']),
+    trackingMode: z.literal('MANUAL'),
     currentOdometer: odometer,
     lastOilChangeKm: odometer,
     lastOilChangeDate: pastDate,
@@ -30,6 +31,6 @@ export const createVehicleSchema = z
     'A troca não pode ter quilometragem maior que a atual.',
   );
 export const readingSchema = z
-  .object({ odometer, source: z.enum(['MANUAL', 'OBD2']), measuredAt: pastDate })
+  .object({ odometer, source: z.literal('MANUAL'), measuredAt: pastDate })
   .strict();
 export const oilChangeSchema = z.object({ odometer, changedAt: pastDate, oilType }).strict();

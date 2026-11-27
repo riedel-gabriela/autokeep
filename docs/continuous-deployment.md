@@ -56,14 +56,13 @@ branch nesse environment, permitir somente main. Os secrets podem ser
 cadastrados nesse environment em vez do repositório; restrições/revisores do
 GitHub podem exigir liberação adicional conforme as configurações existentes.
 
-Depois de configurar os secrets, integrar esta branch à main. O push resultante
-inicia a publicação automaticamente. Para repetir, usar Actions → CI e deploy
-→ Run workflow → main. Registrar o link da primeira execução bem-sucedida na
-matriz de requisitos; ter o YAML no repositório não comprova uma execução real.
+O CD foi validado em 27/11/2026 na execução [#24](https://github.com/riedel-gabriela/autokeep/actions/runs/46082027407),
+commit `6f28a33` da main: verificação e deploy dev/prod aprovados.
+Para repetir, usar Actions → CI e deploy → Run workflow → main.
 
 ## Limite das alterações automáticas
 
-`scripts/deploy.mjs` permite apenas atualização do código/hash da Lambda
+`scripts/deploy.mjs` permite apenas atualização do código/hash e do metadado calculado lastModified da Lambda
 existente e criação/atualização/remoção dos objetos estáticos gerados no bucket
 de produção. Substituições, novas infraestruturas, configurações da Lambda,
 permissões, DNS, tabelas e alterações de provider bloqueiam a publicação.

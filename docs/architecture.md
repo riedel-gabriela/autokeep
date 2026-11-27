@@ -47,4 +47,4 @@ exige chaves e permissão do navegador; não há entrega real comprovada apenas
 pelos testes simulados.
 
 E-mail cloud, GPS, Bluetooth automático e offline não estão implementados.
-Não há dependência de RDS, Cognito, Vercel, SES ou SNS na execução atual.
+Não há dependência de RDS, Cognito, SES ou SNS na execução atual.

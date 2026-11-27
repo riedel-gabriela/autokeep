@@ -86,6 +86,7 @@ contínua/automática de leituras.
 - Arquivamento oculta o veículo e preserva histórico e auditoria.
 - Notificações no app são avaliadas sob demanda; não existe envio real de e-mail.
 
-OBD2 recebe valores confirmados pelo usuário, sem conexão ao adaptador.
+Novas leituras e veículos aceitam somente entrada manual. A origem OBD2 é
+preservada apenas na tipagem e nos registros legados.
 GPS, Bluetooth automático e offline mobile são propostas, não capacidades
 publicadas; veja [estudo mobile](gps-study.md).

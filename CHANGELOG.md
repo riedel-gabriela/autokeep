@@ -8,8 +8,8 @@
   leituras, óleo, previsões, notificações, histórico e auditoria.
 - Produção autentica exclusivamente com Google OAuth; desenvolvimento oferece
   botão Entrar com conta pessoal de teste, sem senha.
-- Removidos gestão de frota, convites, atribuição de motoristas, Mailpit e
-  hospedagem Vercel. DynamoDB Local atende Docker e Codespaces.
+- Removidos gestão de frota, convites, atribuição de motoristas e Mailpit.
+  DynamoDB Local atende Docker e Codespaces.
 - Publicados frontend e API da AWS dev pela Function URL existente; produção
   mantém S3 privado, CloudFront, API Gateway e domínio com HTTPS.
 - Alinhadas as duas stacks Pulumi, removidas a Function URL legada de produção,

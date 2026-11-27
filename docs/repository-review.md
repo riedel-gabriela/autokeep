@@ -58,3 +58,34 @@ Não houve uma nova sessão de OAuth Google nem execução SAM nesta revisão.
   planejada com aliases e preview sem substituir o bucket.
 - A consulta das políticas do usuário de deploy foi negada; não declarar IAM
   totalmente auditado. Inventário regional limitado a us-east-1.
+
+## Revisão de 27/11/2026
+
+Base: main `6f28a33`; alterações na branch `chore/repository-review`.
+
+- Removidas referências à antiga hospedagem da documentação e oito regras CSS
+  sem consumidores (`care-note`, `note-line`, `footer-dot` e variantes).
+- Novas entradas da API aceitam somente MANUAL; contratos e integração alinhados.
+  Tipos OBD2 permanecem para leitura dos dados legados, sem apagar histórico.
+- Datas recebidas são normalizadas para UTC antes de persistir, evitando que
+  offsets diferentes alterem comparações e a ordenação das novas leituras.
+- Histórico visual reúne a troca de óleo e sua leitura automática em uma entrada;
+  registros de armazenamento permanecem intactos. Estado de carregamento/erro
+  é reiniciado ao consultar novamente o histórico.
+- Corrigido vencimento por distância sem média de uso: o motivo e a data prevista
+  passam a indicar o limite atingido, em vez de apontar para o prazo temporal futuro.
+- Eliminado slice redundante: a consulta das leituras já limita o resultado a três.
+- Adicionadas regressões para entrada manual, fusos, histórico, vencimento sem
+  média e o metadado lastModified permitido no preview de deploy.
+- README e matriz atualizados com a execução real do CD #24, que publicou dev/prod.
+
+Validação local: testes automatizados, integração em duas origens com DynamoDB
+Local descartável, build web/Lambda e check TypeScript do Pulumi. A execução
+inicial dos testes foi bloqueada pelas portas do sandbox; a execução autorizada
+com portas locais passou. Nenhuma alteração de infraestrutura foi aplicada.
+
+Limites: esta revisão não executou OAuth interativo, entrega de push em aparelho
+real, SAM ou novo inventário AWS. As operações de manutenção ainda gravam vários
+itens separadamente; transações com condição de versão são uma melhoria pendente
+para evitar perda de atualização em escritas simultâneas. Comparações de datas
+legadas com offsets exigem atenção numa eventual migração dos dados existentes.
