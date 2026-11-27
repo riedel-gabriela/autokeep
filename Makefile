@@ -16,4 +16,5 @@ integration:
 	npm run test:integration
 
 lambda:
+	npm run build
 	npm run build:lambda

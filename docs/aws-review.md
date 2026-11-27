@@ -59,3 +59,25 @@ opcionais; nenhum serviço pago adicional foi habilitado nesta revisão.
 
 O comando destroy continua sujeito às proteções e retenções descritas no
 [guia Pulumi](../pulumi-start-aws/README.md). Não é um desligamento temporário.
+
+## Nova conferência após revisão do repositório
+
+Em 26/11/2026, consultas ao vivo pelo Codespace confirmaram o inventário acima
+na conta esperada. Também retornaram listas vazias: APIs REST do API Gateway,
+NAT Gateways, balanceadores ELBv2 e repositórios ECR em us-east-1. O bucket
+contém o build publicado e seus ícones/fontes; não foram encontrados bundles
+antigos adicionais. A policy de invocação de produção contém somente a
+permissão do API Gateway esperado.
+
+Os grupos de logs das duas Lambdas têm retenção de 7 dias; não foi encontrado
+grupo extra na consulta.
+
+Os previews das revisões publicadas retornaram 7 recursos sem alterações em
+dev e 42 em prod. Nenhum recurso AWS foi criado ou removido nesta nova
+conferência. Os ajustes de documentação/estilos locais posteriores ao preview
+não foram publicados por essa consulta.
+
+Limite da revisão: não é um inventário de todas as regiões da conta. A leitura
+das políticas anexadas ao usuário autokeep-deploy falhou com AccessDenied em
+iam:ListAttachedUserPolicies. Portanto, não foi possível certificar o menor
+privilégio desse usuário; nenhuma permissão foi ampliada para fazer a revisão.

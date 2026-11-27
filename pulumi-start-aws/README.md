@@ -71,6 +71,13 @@ exige revisão dos dados e dependências. Builds não publicam sozinhos; `up`
 aplica a configuração e os artefatos gerados. Confira saldo e consumo antes e
 depois de mudanças; créditos e franquias não são teto rígido de gastos.
 
+## Deploy automático
+
+O workflow publica o pacote validado em dev e depois em prod somente na main.
+Secrets de GitHub Actions e execução real são necessários para ativá-lo. O CD
+bloqueia alterações de infraestrutura e aplica somente planos de atualização
+da aplicação. Veja [configuração e operação](../docs/continuous-deployment.md).
+
 ## OAuth de produção
 
 `Pulumi.prod.yaml` referencia o Client ID e o ARN do segredo no Secrets Manager.

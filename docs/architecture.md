@@ -32,9 +32,11 @@ e auditoria; `CAR#id`, leituras e trocas. Índices de e-mail, sessões e
 notificações usam itens próprios. TTL auxilia a remoção de sessões expiradas;
 a API também valida a expiração. Arquivar um veículo preserva seu histórico.
 
-As alterações de cadastro usam escrita transacional. Fluxos de manutenção
+O cadastro da identidade Google usa escrita transacional. Fluxos de manutenção
 que fazem várias escritas individuais ainda precisam de análise específica
 para disputas concorrentes; os testes sequenciais não garantem atomicidade.
+
+A modelagem editável e as chaves estão em [data-model.md](data-model.md).
 
 ## Manutenção e notificações
 

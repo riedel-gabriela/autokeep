@@ -223,14 +223,6 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="care-note">
-            <span>
-              <ShieldCheck size={21} />
-            </span>
-            <h3>Cuidado que vai longe.</h3>
-            <p>Um pouco de atenção hoje. Muito mais caminho amanhã.</p>
-            <span className="note-line" />
-          </div>
           <button className="profile" onClick={logout} title="Sair da conta">
             <span className="avatar">
               {session.user.name
@@ -289,9 +281,7 @@ export function App() {
           <div className="page-heading">
             <div>
               <span className="eyebrow">
-                {page === 'overview'
-                  ? 'TUDO PRONTO PARA O PRÓXIMO CAMINHO'
-                  : 'CUIDADO EM CADA DETALHE'}
+                {page === 'overview' ? 'MINHA GARAGEM' : pageNames[page].toUpperCase()}
               </span>
               <h1>
                 {page === 'overview'
@@ -302,10 +292,10 @@ export function App() {
                 {page === 'overview'
                   ? 'Seu carro em dia. Sua rotina mais tranquila.'
                   : page === 'vehicles'
-                    ? 'Cada veículo, cada cuidado, tudo no mesmo lugar.'
+                    ? 'Veículos cadastrados na sua garagem.'
                     : page === 'history'
-                      ? 'Uma linha do tempo dos cuidados com seus veículos.'
-                      : 'Os próximos cuidados, sem deixar nada passar.'}
+                      ? 'Leituras e manutenções registradas.'
+                      : 'Avisos e lembretes de manutenção.'}
               </p>
             </div>
             {orgId && ['overview', 'vehicles'].includes(page) && (
@@ -530,10 +520,7 @@ export function App() {
           <footer className="content-footer">
             <span>
               <img src="/icon-192.png" width="18" height="18" alt="" />
-              Cuidado em movimento.
-            </span>
-            <span>
-              AutoKeep <span className="footer-dot">·</span> Feito para ir mais longe
+              AutoKeep
             </span>
           </footer>
         </main>
@@ -804,7 +791,7 @@ function PersonalDashboard({
           <span className="reminder-icon">
             <Gauge size={25} />
           </span>
-          <span className="eyebrow">UM MINUTINHO DE CUIDADO</span>
+          <span className="eyebrow">LEITURA DO PAINEL</span>
           <h3>
             {v.calibrationDue
               ? 'Vamos atualizar a leitura?'

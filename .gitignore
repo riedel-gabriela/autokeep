@@ -11,6 +11,4 @@ Pulumi.*.yaml
 !pulumi-start-aws/Pulumi.prod.yaml
 tmp/
 coverage/
-docs/config.json
-.vercel
 .aws-sam/

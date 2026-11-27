@@ -48,6 +48,22 @@ export function VehicleDetail({
     onClose();
     onAction({ type, vehicle: v });
   }
+  const historyEntries = [
+    ...(history?.oilChanges ?? []).map((change) => ({
+      id: `oil-${change.id}`,
+      kind: 'oil' as const,
+      date: change.changedAt,
+      odometer: change.odometer,
+      oilType: change.oilType,
+      actorName: change.actorName,
+    })),
+    ...(history?.readings ?? []).map((reading) => ({
+      id: `reading-${reading.id}`,
+      kind: 'reading' as const,
+      date: reading.measuredAt,
+      odometer: reading.odometer,
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
   return (
     <Modal title={v.name} subtitle={`${v.plate} · ${v.year}`} onClose={onClose}>
       <div className="vehicle-detail">
@@ -112,46 +128,36 @@ export function VehicleDetail({
           </button>
         </div>
         <h3 className="history-heading">
-          <History size={18} /> Histórico de manutenção
+          <History size={18} /> Histórico
         </h3>
         {error && <div className="form-error">{error}</div>}
         {!history && !error ? (
           <p className="muted">Carregando histórico…</p>
-        ) : (
-          history?.oilChanges.map((change) => (
-            <div className="history-row" key={change.id}>
-              <span className="history-icon">
-                <Droplets size={17} />
+        ) : historyEntries.length ? (
+          historyEntries.map((entry) => (
+            <div className="history-row" key={entry.id}>
+              <span className={`history-icon ${entry.kind === 'reading' ? 'neutral' : ''}`}>
+                {entry.kind === 'oil' ? <Droplets size={17} /> : <Pencil size={16} />}
               </span>
               <div>
-                <strong>Troca de óleo {OIL_LABELS[change.oilType].toLowerCase()}</strong>
+                <strong>
+                  {entry.kind === 'oil'
+                    ? `Troca de óleo ${OIL_LABELS[entry.oilType].toLowerCase()}`
+                    : 'Leitura de quilometragem'}
+                </strong>
                 <small>
-                  {date(change.changedAt)} · {change.actorName}
+                  {date(entry.date)}
+                  {entry.kind === 'oil' && entry.actorName ? ` · ${entry.actorName}` : ''}
                 </small>
               </div>
               <strong>
-                {km(change.odometer)} <small>km</small>
+                {km(entry.odometer)} <small>km</small>
               </strong>
             </div>
           ))
+        ) : (
+          <p className="muted">Nenhum registro disponível.</p>
         )}
-        <h3 className="history-heading">
-          <Gauge size={18} /> Leituras de quilometragem
-        </h3>
-        {history?.readings.map((reading) => (
-          <div className="history-row" key={reading.id}>
-            <span className="history-icon neutral">
-              <Pencil size={16} />
-            </span>
-            <div>
-              <strong>{reading.source === 'OBD2' ? 'OBD2 confirmado' : 'Leitura manual'}</strong>
-              <small>{date(reading.measuredAt)}</small>
-            </div>
-            <strong>
-              {km(reading.odometer)} <small>km</small>
-            </strong>
-          </div>
-        ))}
         <button className="danger-link" onClick={() => action('archive')}>
           <Archive size={15} />
           Arquivar veículo

@@ -190,10 +190,6 @@ fieldset {
 .uppercase {
   text-transform: uppercase;
 }
-.plain {
-  padding: 0;
-  text-align: left;
-}
 .button {
   display: inline-flex;
   justify-content: center;
@@ -262,11 +258,6 @@ fieldset {
 .text-link:hover {
   color: var(--text-secondary, #5a6576);
 }
-.inline-link {
-  text-decoration: underline;
-  font-weight: 800;
-  padding: 0;
-}
 .eyebrow {
   display: flex;
   align-items: center;
@@ -286,9 +277,6 @@ fieldset {
   font-weight: 500;
   line-height: 1;
   letter-spacing: -1.3px;
-}
-.brand-weight {
-  font-weight: 800;
 }
 .brand small {
   display: block;
@@ -326,13 +314,6 @@ fieldset {
   background: var(--warning-surface, #efe8da);
   color: var(--warning-text, #7c6548);
   border-color: var(--warning-border, #e4dbc9);
-}
-.avatar.tiny {
-  width: 24px;
-  height: 24px;
-  font-size: 8px;
-  border: 0;
-  background: var(--surface-inset, #e3e5e9);
 }
 .spin {
   animation: spin 1s linear infinite;
@@ -730,20 +711,6 @@ fieldset {
   color: var(--muted);
   margin-top: 6px;
 }
-.stat.green > .stat-label > span {
-  background: var(--surface-inset, #eceef0);
-  color: var(--text-secondary, #5e6979);
-}
-.stat.green > strong {
-  color: var(--text-secondary, #525c6a);
-}
-.stat.amber > .stat-label > span {
-  background: var(--warning-surface, #fff4df);
-  color: var(--warning-text, #b69556);
-}
-.stat.amber > strong {
-  color: var(--warning-text, #ad823e);
-}
 .content-loading {
   min-height: 400px;
   display: flex;
@@ -786,22 +753,6 @@ fieldset {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
-.car-icon {
-  height: 31px;
-  width: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-inset, #ebedf0);
-  border: 1px solid var(--border-strong, #dde0e5);
-  border-radius: 7px;
-  color: var(--warning-text, #a49474);
-}
-.due .car-icon {
-  background: var(--danger-surface, #f7ede4);
-  border-color: var(--danger-border, #f0dfd1);
-  color: var(--danger-text, #b18a65);
-}
 .status {
   display: inline-flex;
   align-items: center;
@@ -830,21 +781,6 @@ fieldset {
 .status.due {
   background: var(--danger-surface, #fbeee6);
   color: var(--danger-text, #bd7b55);
-}
-.vehicle-title {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
-}
-.vehicle-title strong {
-  font-size: 14px;
-  font-weight: 800;
-}
-.vehicle-title > svg {
-  color: var(--muted);
 }
 .plate {
   font-size: 9px;
@@ -1101,14 +1037,6 @@ fieldset {
   width: 100%;
   margin-top: 18px;
   font-size: 11px;
-}
-.count-pill {
-  background: var(--surface-inset, #ebedef);
-  color: var(--muted);
-  padding: 3px 7px;
-  margin-left: 7px;
-  font-size: 10px;
-  border-radius: 4px;
 }
 .table-toolbar > .muted {
   font-size: 10px;
@@ -1666,15 +1594,6 @@ fieldset {
 .error-banner > button {
   font-size: 11px;
   text-decoration: underline;
-}
-.success-note {
-  padding: 13px;
-  background: var(--soft);
-  border: 1px solid var(--border-strong, #d5d9de);
-  color: var(--muted);
-  font-size: 11px;
-  border-radius: 7px;
-  margin-bottom: 20px;
 }
 .empty {
   padding: 55px 25px;
@@ -2394,9 +2313,6 @@ fieldset {
   }
   .attention-grid {
     gap: 13px;
-  }
-  .vehicle-title strong {
-    font-size: 14px;
   }
   .vehicle-table .status {
     font-size: 8px;

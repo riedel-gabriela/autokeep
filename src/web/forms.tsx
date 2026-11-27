@@ -1,4 +1,4 @@
-import { AlertCircle, Radio } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import type { Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
 import { api, write } from './api.js';
@@ -53,7 +53,7 @@ export function ActionDialog({
                 .toUpperCase(),
               year: Number(data.get('year')),
               oilType: data.get('oilType'),
-              trackingMode: data.get('trackingMode'),
+              trackingMode: 'MANUAL',
               currentOdometer: Number(data.get('odometer')),
               lastOilChangeKm: Number(data.get('changeKm')),
               lastOilChangeDate: dayIso(String(data.get('changeDate'))),
@@ -109,13 +109,6 @@ export function ActionDialog({
                 required
               />
             </label>
-            <label>
-              Acompanhamento
-              <select name="trackingMode">
-                <option value="MANUAL">Leituras manuais</option>
-                <option value="OBD2">Leituras OBD2 confirmadas</option>
-              </select>
-            </label>
           </div>
           <div className="form-divider">Última troca de óleo</div>
           <label>
@@ -135,8 +128,8 @@ export function ActionDialog({
             </label>
           </div>
           <p className="field-hint">
-            A troca vence por quilometragem ou após 365 dias, o que acontecer primeiro. O modo OBD2
-            recebe leituras confirmadas; não conecta automaticamente ao adaptador.
+            Informe os dados do painel. A troca vence por quilometragem ou após 365 dias, o que
+            acontecer primeiro.
           </p>
         </Form>
       </Modal>
@@ -151,7 +144,7 @@ export function ActionDialog({
             await write(`${base}/vehicles/${v.id}/odometer`, {
               odometer: Number(data.get('odometer')),
               measuredAt: new Date(String(data.get('measuredAt'))).toISOString(),
-              source: data.get('source'),
+              source: 'MANUAL',
             });
             await finish('Quilometragem atualizada. Previsão recalculada.');
           }}
@@ -186,17 +179,9 @@ export function ActionDialog({
               required
             />
           </label>
-          <label>
-            Origem
-            <select name="source" defaultValue="MANUAL">
-              <option value="MANUAL">Painel do veículo · manual</option>
-              <option value="OBD2">OBD2 · total confirmado no painel</option>
-            </select>
-          </label>
-          <div className="field-hint">
-            <Radio size={16} /> O PID padrão OBD2 01 31 mede distância desde a limpeza de falhas,
-            não o odômetro total. Confirme o total no painel antes de informar.
-          </div>
+          <p className="field-hint">
+            A leitura é registrada manualmente a partir do painel do veículo.
+          </p>
         </Form>
       </Modal>
     );

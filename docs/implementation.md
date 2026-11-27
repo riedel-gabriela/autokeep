@@ -42,7 +42,9 @@ Route 53 e ACM. As tabelas e Lambdas existentes são adotadas. Consulte o
 
 ## Pendências conhecidas
 
-- Envio real de e-mail e publicação automática de produção pelo CI/CD.
+- Habilitar e validar push real em produção; push substitui e-mail no escopo acordado.
+- Ativar o CD implementado em `.github/workflows/ci.yml` e registrar execução real;
+  veja [continuous-deployment.md](continuous-deployment.md).
 - Evidência em dispositivo real para entrega Web Push, responsividade e latência.
 - GPS, Bluetooth/OBD2 automático e operação offline são evoluções de produto.
 

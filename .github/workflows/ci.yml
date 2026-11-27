@@ -1,6 +1,9 @@
-name: CI
+name: CI e deploy
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,3 +25,73 @@ jobs:
       - run: npm run build:lambda
       - run: npm ci --prefix pulumi-start-aws
       - run: npm run check --prefix pulumi-start-aws
+      - name: Guardar o pacote validado para promoção
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-${{ github.sha }}
+          path: |
+            dist/web
+            dist/autokeep-lambda.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: autokeep-deploy
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://autokeep.negoci.online
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: pulumi-start-aws/package-lock.json
+      - name: Conferir secrets do deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY PULUMI_ACCESS_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Cadastre o secret $name no GitHub Actions. Secrets de Codespaces são separados."
+              exit 1
+            fi
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: application-${{ github.sha }}
+          path: dist
+      - run: npm ci --prefix pulumi-start-aws
+      - uses: pulumi/actions@v6
+        with:
+          pulumi-version: '3.277.0'
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+          allowed-account-ids: '672791231338'
+          mask-aws-account-id: true
+      - name: Publicar e testar dev
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          node scripts/deploy.mjs dev
+          APP_URL=$(pulumi -C pulumi-start-aws stack output appUrl --stack riedel-gabriela-org/autokeep/dev)
+          node scripts/cloud-smoke.mjs dev "$APP_URL"
+      - name: Promover o mesmo pacote e testar produção
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          node scripts/deploy.mjs prod
+          node scripts/cloud-smoke.mjs prod https://autokeep.negoci.online

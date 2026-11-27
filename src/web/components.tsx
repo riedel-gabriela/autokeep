@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
-import { ArrowUpRight, Check, ChevronRight, Gauge, LoaderCircle, X } from 'lucide-react';
+import { Check, ChevronRight, Gauge, LoaderCircle, X } from 'lucide-react';
 import type { Vehicle } from '../shared/domain.js';
 
 export const km = (n: number) => Math.max(0, Math.round(n)).toLocaleString('pt-BR');
@@ -228,16 +228,14 @@ export function Stat({
   value,
   caption,
   icon,
-  tone = '',
 }: {
   title: string;
   value: ReactNode;
   caption: string;
   icon: ReactNode;
-  tone?: string;
 }) {
   return (
-    <article className={`stat ${tone}`}>
+    <article className="stat">
       <div className="stat-label">
         {title}
         <span>{icon}</span>
@@ -264,13 +262,5 @@ export function SectionHeading({
       </div>
       {action}
     </div>
-  );
-}
-export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a className="text-link" href={href} target="_blank" rel="noreferrer">
-      {children}
-      <ArrowUpRight size={16} />
-    </a>
   );
 }
