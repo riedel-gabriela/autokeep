@@ -52,6 +52,21 @@ const developmentLoginEnabled =
   process.env.NODE_ENV === 'development' &&
   process.env.DEV_LOGIN_ENABLED === 'true' &&
   !googleOAuthRequired;
+const allowedOrigins = new Set([new URL(origin).origin]);
+// Private Codespaces forwarding rewrites Origin to https://localhost:8080.
+// Accept that proxy origin only for the local development database in Codespaces.
+if (
+  developmentLoginEnabled &&
+  process.env.CODESPACES === 'true' &&
+  process.env.DYNAMODB_ENDPOINT &&
+  new URL(process.env.DYNAMODB_ENDPOINT).protocol === 'http:' &&
+  ['localhost', '127.0.0.1', 'db', 'host.docker.internal'].includes(
+    new URL(process.env.DYNAMODB_ENDPOINT).hostname,
+  ) &&
+  new URL(origin).hostname.endsWith('.app.github.dev')
+) {
+  allowedOrigins.add(`https://localhost:${process.env.PORT || '8080'}`);
+}
 const developmentUser = {
   id: 'a0000000-0000-4000-8000-000000000001',
   name: 'Ana Souza',
@@ -216,7 +231,7 @@ export function createApp() {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         check(
-          req.headers.origin === new URL(origin).origin,
+          allowedOrigins.has(req.headers.origin || ''),
           403,
           'INVALID_ORIGIN',
           'Origem da solicitação não permitida.',

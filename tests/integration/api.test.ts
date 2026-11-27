@@ -15,6 +15,8 @@ if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostnam
 const vapid = generateVAPIDKeys();
 Object.assign(process.env, {
   NODE_ENV: 'development',
+  CODESPACES: origin.endsWith('.app.github.dev') ? 'true' : 'false',
+  PORT: '8080',
   DEV_LOGIN_ENABLED: 'true',
   AUTH_MODE: 'development',
   DYNAMODB_ENDPOINT: endpoint,
@@ -61,6 +63,17 @@ test('personal garage: development login, ownership, vehicle lifecycle, notifica
     assert.equal(await pageForHost(new URL(origin).host), 200);
     assert.equal(await pageForHost('untrusted.example'), 403);
     assert.equal((await request('/session')).status, 401);
+    for (const [requestOrigin, expectedStatus] of [
+      ['https://localhost:8080', origin.endsWith('.app.github.dev') ? 200 : 403],
+      ['https://untrusted.example', 403],
+    ] as const) {
+      const forwarded = await fetch(`${root}/auth/dev-login`, {
+        method: 'POST',
+        headers: { origin: requestOrigin, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      assert.equal(forwarded.status, expectedStatus);
+    }
     const login = await request('/auth/dev-login', 'POST', {});
     assert.equal(login.status, 200);
     assert.equal(

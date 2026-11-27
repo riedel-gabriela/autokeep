@@ -15,8 +15,6 @@ const hostingEnabled = config.getBoolean('hostingEnabled') === true;
 const googleClientId = config.get('googleClientId');
 const googleSecretArn = config.get('googleClientSecretArn');
 const pushEnabled = stack === 'dev' && config.getBoolean('pushEnabled') === true;
-if (pushEnabled && !hostingEnabled)
-  throw new Error('Ative hostingEnabled na stack dev para usar Web Push.');
 const pushPublicKey = pushEnabled ? config.require('pushPublicKey') : '';
 const pushPrivateKey = pushEnabled ? config.requireSecret('pushPrivateKey') : pulumi.output('');
 const pushSubject = pushEnabled ? config.require('pushSubject') : '';
@@ -264,8 +262,8 @@ export const databaseArn = table.arn;
 export const apiName = api.name;
 export const apiArn = api.arn;
 export const region = 'us-east-1';
-export const dnsZoneId = dnsZone?.zoneId;
-export const dnsNameServers = dnsZone?.nameServers;
+export const dnsZoneId = dnsZone?.zoneId ?? null;
+export const dnsNameServers = dnsZone?.nameServers ?? null;
 
 let hostingBucketName: pulumi.Output<string> | undefined;
 let hostingApiUrl: pulumi.Output<string> | undefined;
@@ -444,12 +442,6 @@ if (hostingEnabled) {
       priceClass: 'PriceClass_All',
       origins: [
         {
-          domainName: bucket.bucketRegionalDomainName,
-          originId: 'private-s3',
-          originAccessControlId: originAccess.id,
-          s3OriginConfig: { originAccessIdentity: '' },
-        },
-        {
           domainName: pulumi.interpolate`${httpApi.id}.execute-api.us-east-1.amazonaws.com`,
           originId: 'http-api',
           customOriginConfig: {
@@ -458,6 +450,11 @@ if (hostingEnabled) {
             originProtocolPolicy: 'https-only',
             originSslProtocols: ['TLSv1.2'],
           },
+        },
+        {
+          domainName: bucket.bucketRegionalDomainName,
+          originId: 'private-s3',
+          originAccessControlId: originAccess.id,
         },
       ],
       defaultCacheBehavior: {
@@ -567,12 +564,12 @@ if (hostingEnabled) {
   hostingDistributionId = distribution.id;
 }
 
-export const staticBucketName = hostingBucketName;
-export const apiGatewayUrl = hostingApiUrl;
-export const cloudFrontUrl = hostingCloudFrontUrl;
-export const cloudFrontDistributionId = hostingDistributionId;
+export const staticBucketName = hostingBucketName ?? null;
+export const apiGatewayUrl = hostingApiUrl ?? null;
+export const cloudFrontUrl = hostingCloudFrontUrl ?? null;
+export const cloudFrontDistributionId = hostingDistributionId ?? null;
 export const googleCallbackUrl = googleClientId
   ? appOrigin.apply((origin) => new URL('/api/auth/google/callback', origin).href)
-  : undefined;
+  : null;
 
 export const appUrl = stack === 'dev' ? appOrigin : config.require('appOrigin');

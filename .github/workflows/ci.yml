@@ -20,3 +20,5 @@ jobs:
       - run: npm run test:integration
       - run: npm run build
       - run: npm run build:lambda
+      - run: npm ci --prefix pulumi-start-aws
+      - run: npm run check --prefix pulumi-start-aws
