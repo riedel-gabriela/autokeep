@@ -1,147 +1,129 @@
 # Infraestrutura AWS do AutoKeep
 
-Pulumi mantém as stacks `dev` e `prod` em `us-east-1`, adotando as tabelas
-DynamoDB e funções Lambda existentes. A stack `prod` também publica o frontend
-e a API em `https://autokeep.negoci.online`.
+O Pulumi adota as tabelas `autokeep-dev`/`autokeep-prod` e as Lambdas
+`autokeep-api-dev`/`autokeep-api-prod` existentes na conta `672791231338`, em
+`us-east-1`. O código e ambiente das duas funções são gerenciados pela stack.
 
 ```text
-navegador → Route 53 → CloudFront → S3 privado (frontend)
-                               └→ API Gateway HTTP → Lambda → DynamoDB
+dev:  navegador → Function URL da Lambda → DynamoDB dev
+                  (frontend e API)
+
+prod: navegador → Route 53 → CloudFront → S3 privado
+                                     └→ API Gateway HTTP → Lambda → DynamoDB prod
 ```
 
-O certificado HTTPS é validado por DNS. A hosted zone existente é importada
-pelo ID configurado; não crie outra zona para esse domínio.
+Dev reaproveita a Function URL existente, sem criar outra distribuição, bucket,
+API Gateway ou zona DNS. A produção mantém `autokeep.negoci.online`, com ACM
+e registros na zona delegada existente. Não crie outra zona para esse domínio.
 
-## Pré-requisitos
+## Preparar e publicar
 
-- Use o Codespace com os secrets AWS e acesso ao backend Pulumi.
-- Node.js/npm, AWS CLI e Pulumi disponíveis.
-- Credenciais devem apontar para a conta `672791231338` e região `us-east-1`.
-- Gere os artefatos na raiz do repositório antes de atualizar a stack.
-
-Confira a identidade sem imprimir credenciais:
+Use o Codespace com os secrets AWS e autenticação Pulumi. Não copie secrets para
+o repositório, logs ou variáveis frontend. Confira a identidade:
 
 ```sh
 aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output json
 ```
 
-Se a conta não for a esperada, pare antes de aplicar.
-
-## Atualizar produção
-
-Na raiz:
+Na raiz do repositório:
 
 ```sh
 npm ci
+npm test
+npm run test:integration
 npm run build
 npm run build:lambda
 cd pulumi-start-aws
 npm ci
 npm run check
 pulumi login
-pulumi stack select prod
-pulumi preview --diff
-pulumi up
-pulumi stack output
 ```
 
-Leia o plano completo antes de confirmar `pulumi up`. A atualização normal deve
-preservar a tabela e a função existentes. Se aparecer substituição ou remoção
-de tabela, Lambda, role ou DNS, não confirme. O Pulumi publica os builds web e
-Lambda gerados antes de entrar nesta pasta.
+O zip da Lambda inclui o frontend para o ambiente dev. Gere sempre ambos os
+builds antes de atualizar qualquer stack.
 
-Confira o domínio e a API:
+Desenvolvimento:
 
 ```sh
-curl -i https://autokeep.negoci.online/
-curl -i https://autokeep.negoci.online/api/health
+pulumi preview --diff --stack dev
+pulumi up --stack dev
+pulumi stack output appUrl --stack dev
 ```
 
-Isso verifica disponibilidade básica; faça também login, gravações e teste de
-isolamento antes de considerar a validação funcional concluída.
+Abra a URL e clique em **Entrar**. É uma conta compartilhada de teste; não use
+dados pessoais reais. `NODE_ENV=development` e `DEV_LOGIN_ENABLED=true`
+habilitam o acesso simples no servidor, sem senha nem segredo OAuth de dev.
 
-Os valores de produção estão em `Pulumi.prod.yaml`: hospedagem e domínio ativos,
-origem `https://autokeep.negoci.online`. Credenciais AWS e token Pulumi nunca
-devem ser versionados. No deploy de produção, o Pulumi define `AUTH_MODE=google`
-e interrompe o preview se não encontrar um client ID e ARN de segredo válidos
-na configuração ou na Lambda existente. O login e o cadastro por senha ficam
-bloqueados; um usuário novo pode criar um espaço com Google e um usuário
-existente pode vincular sua conta uma vez. Web Push segue desligado.
+Depois de validar o ambiente de desenvolvimento, publique produção:
 
-## OAuth Google (opcional)
+```sh
+pulumi preview --diff --stack prod
+pulumi up --stack prod
+pulumi stack output appUrl --stack prod
+```
 
-OAuth requer cliente OAuth no Google Cloud e segredo do cliente no AWS Secrets
-Manager, região `us-east-1`. O segredo deve guardar apenas o texto do client
-secret e a policy criada pelo Pulumi limita `GetSecretValue` ao ARN informado.
-Use cliente e segredo separados para `dev` e `prod`.
+A produção define `NODE_ENV=production`, `DEV_LOGIN_ENABLED=false` e
+`AUTH_MODE=google`. Somente Google OAuth abre a sessão. A API também bloqueia
+`POST /api/auth/dev-login`, mesmo por chamada direta.
 
-O Secrets Manager custa atualmente US$ 0,40 por segredo/mês, mais US$ 0,05 por
-10.000 chamadas de API. Uma chamada pode ocorrer no primeiro uso após cold start.
-Confirme saldo, créditos e eventual período gratuito antes de criar o segredo;
-o deploy não cria esse segredo automaticamente. [Preços do Secrets Manager](https://aws.amazon.com/secrets-manager/pricing/).
+Leia o preview completo. Substituição/remoção de tabela, Lambda, role ou DNS
+exige revisão dos dados e dependências. Builds não publicam sozinhos; `up`
+aplica a configuração e os artefatos gerados. Confira saldo e consumo antes e
+depois de mudanças; créditos e franquias não são teto rígido de gastos.
 
-Configure o ID e o ARN como valores não secretos da stack. Nunca passe o valor
-do segredo no Pulumi ou no terminal:
+## OAuth de produção
+
+`Pulumi.prod.yaml` referencia o Client ID e o ARN do segredo no Secrets Manager.
+O valor do segredo não vai no Pulumi, terminal ou frontend. A aplicação aceita
+texto puro ou JSON com uma das chaves `client_secret`, `GOOGLE_CLIENT_SECRET`
+ou `autokeep/google-oauth-client-secret`. Use o segredo do mesmo cliente OAuth.
+A permissão da Lambda deve ficar restrita ao ARN configurado.
 
 ```sh
 pulumi config set autokeep:googleClientId CLIENT_ID --stack prod
 pulumi config set autokeep:googleClientSecretArn ARN_DO_SEGREDO --stack prod
 pulumi stack output googleCallbackUrl --stack prod
-pulumi preview --diff --stack prod
 ```
 
-Cadastre a saída `googleCallbackUrl` como URI de redirecionamento autorizado no
-cliente Google. Revise o preview: a única permissão nova deve conceder
-`secretsmanager:GetSecretValue` para o ARN especificado. Só então aplique com
-`pulumi up --stack prod`. Sem essas duas configurações, OAuth fica desativado.
+Cadastre essa URL de callback no cliente OAuth do Google. Não crie outro
+segredo se o atual estiver correto. Recursos pagos adicionais exigem aprovação
+com estimativa de valor e frequência antes da criação.
 
-## Web Push agendado (opcional, dev)
+## Web Push opcional
 
-O Web Push no Docker local pode usar chaves VAPID no `.env`. O processamento
-agendado na AWS é limitado a `dev` e cria regra EventBridge que invoca a Lambda
-a cada 15 minutos (cerca de 2.880 invocações por mês), além do consumo da Lambda
-e do DynamoDB. Pode haver cobrança conforme o uso e os créditos; não habilite
-sem conferir o Billing e aprovar esse consumo. EventBridge anuncia 14 milhões
-de invocações mensais gratuitas para Scheduler, mas o código usa regra agendada
-EventBridge e o limite não deve ser presumido como teto. [Preços do EventBridge](https://aws.amazon.com/eventbridge/pricing/).
+A aplicação mantém Web Push opcional. O processamento agendado é restrito à
+stack dev e exige habilitação explícita, chaves VAPID e `PUSH_SUBJECT`.
+Não habilite `pushEnabled` sem revisar requisitos, dependências, preview e custo.
+Notificações no app continuam disponíveis sem scheduler.
 
-Habilitação exige `hostingEnabled` em `dev`, `pushEnabled: true`, chaves VAPID e
-`PUSH_SUBJECT`. A chave privada deve ser secreta. Gere os artefatos web/Lambda,
-revise `pulumi preview --diff --stack dev` e confira criação da regra e o novo
-timeout da Lambda antes de aplicar. Esta feature não é habilitada por este
-deploy de produção.
+## Parar desenvolvimento e remover infraestrutura
 
-## Desenvolvimento local e SAM
-
-O Docker local usa DynamoDB Local e Mailpit, sem AWS:
+Para parar somente o Docker local, na raiz:
 
 ```sh
-cd ..
-npm run dev
-npm run credentials
 npm run down
 ```
 
-`npm run down` preserva o volume local. Para apagar os dados locais também, use
-`docker compose down --volumes`. O fluxo para emular a Lambda e API Gateway com
-SAM está documentado em [`../docs/sam-local.md`](../docs/sam-local.md).
+`pulumi destroy` não pausa serviços. Tabelas, funções e outros recursos têm
+`protect` e/ou `retainOnDelete`; o comando pode falhar por proteção ou reter
+recursos cobrando fora do estado. Não retire as proteções para contornar o erro.
+A stack adota recursos existentes: não garante reconstrução de todos os dados,
+roles ou recursos externos a partir de uma conta vazia.
 
-## `pulumi destroy`
-
-`pulumi destroy` remove recursos registrados na stack. Tabelas, Lambda, zona
-DNS e hospedagem têm `protect` e/ou `retainOnDelete`; a operação deve falhar ao
-tentar remover recursos protegidos. Não retire essas proteções para contornar o
-bloqueio: isso pode apagar dados ou deixar recursos cobrando fora do estado.
-
-Para inspecionar a stack antes de qualquer destruição:
+Antes de planejar qualquer exclusão:
 
 ```sh
-pulumi stack select dev
-pulumi stack --show-urns
+pulumi stack --stack dev --show-urns
 pulumi preview --diff --stack dev
 ```
 
-Somente considere `pulumi destroy --stack dev` se o estado revisado estiver
-vazio ou se todos os recursos e dados puderem ser descartados. Não use destroy
-para pausar a hospedagem. Créditos e franquias gratuitas não são teto de gasto;
-verifique Billing antes e depois de qualquer alteração.
+A limpeza deve conferir propriedade, dependências, dados, referência no código
+e uso real na AWS. Ambientes dev/prod separados não são redundância. A remoção
+de dados sem recuperação exige confirmação específica. Os comandos abaixo só
+se aplicam após revisão e autorização da destruição correspondente:
+
+```sh
+pulumi destroy --stack dev
+```
+
+Não execute `destroy` em produção como procedimento de manutenção.

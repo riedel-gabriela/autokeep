@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
-import { createECDH, randomBytes } from 'node:crypto';
+import { createECDH, createHash, randomBytes } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
-import { get as httpGet } from 'node:http';
 import https from 'node:https';
+import { get as httpGet } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import { generateVAPIDKeys } from 'web-push';
 
-// Tests refuse remote/cloud databases, even if the shell contains AWS credentials.
 const endpoint = process.env.DYNAMODB_ENDPOINT || 'http://127.0.0.1:18000';
 const url = new URL(endpoint);
 const origin = process.env.AUTOKEEP_TEST_ORIGIN || 'http://localhost:8080';
@@ -16,24 +15,25 @@ if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostnam
 const vapid = generateVAPIDKeys();
 Object.assign(process.env, {
   NODE_ENV: 'development',
+  DEV_LOGIN_ENABLED: 'true',
+  AUTH_MODE: 'development',
   DYNAMODB_ENDPOINT: endpoint,
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'local',
   AWS_SECRET_ACCESS_KEY: 'local',
   DYNAMODB_TABLE: `autokeep-test-${Date.now()}`,
-  SEED_DEMO: 'true',
-  DEMO_PASSWORD: 'local-integration-test-password',
   APP_ORIGIN: origin,
   PUSH_PUBLIC_KEY: vapid.publicKey,
   PUSH_PRIVATE_KEY: vapid.privateKey,
   PUSH_SUBJECT: 'mailto:push@example.com',
 });
 delete process.env.AWS_SESSION_TOKEN;
-delete process.env.SMTP_HOST;
+delete process.env.GOOGLE_CLIENT_ID;
+delete process.env.GOOGLE_CLIENT_SECRET_ARN;
 const { createApp, runMaintenancePush } = await import('../../src/server/app.js');
-const { ensureLocalTable } = await import('../../src/server/dynamo.js');
+const { ensureLocalTable, put, get } = await import('../../src/server/dynamo.js');
 
-test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificações', async (t) => {
+test('personal garage: development login, ownership, vehicle lifecycle, notifications and legacy isolation', async (t) => {
   await ensureLocalTable();
   const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({
@@ -44,108 +44,73 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const root = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
-  function pageForHost(host: string): Promise<{ status: number; body: string }> {
-    return new Promise((resolve, reject) => {
-      httpGet(root.replace(/\/api$/, '/'), { headers: { host } }, (response) => {
-        let body = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-          body += chunk;
-        });
-        response.on('end', () => resolve({ status: response.statusCode!, body }));
-        response.on('error', reject);
-      }).on('error', reject);
-    });
-  }
-  async function request(path: string, method = 'GET', body?: unknown, cookie = '') {
-    return fetch(`${root}${path}`, {
+  const request = (path: string, method = 'GET', body?: unknown, cookie = '') =>
+    fetch(`${root}${path}`, {
       method,
       headers: { origin, 'content-type': 'application/json', cookie },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  }
-  async function login(email: string) {
-    const response = await request('/auth/login', 'POST', {
-      email,
-      password: process.env.DEMO_PASSWORD,
+  const pageForHost = (host: string): Promise<number> =>
+    new Promise((resolve, reject) => {
+      httpGet(root.replace(/\/api$/, '/'), { headers: { host } }, (response) => {
+        response.resume();
+        response.on('end', () => resolve(response.statusCode!));
+      }).on('error', reject);
     });
-    assert.equal(response.status, 200);
+  try {
+    assert.equal(await pageForHost(new URL(origin).host), 200);
+    assert.equal(await pageForHost('untrusted.example'), 403);
+    assert.equal((await request('/session')).status, 401);
+    const login = await request('/auth/dev-login', 'POST', {});
+    assert.equal(login.status, 200);
     assert.equal(
-      /; Secure(?:;|$)/i.test(response.headers.get('set-cookie')!),
+      /; Secure(?:;|$)/i.test(login.headers.get('set-cookie')!),
       origin.startsWith('https:'),
     );
-    return {
-      cookie: response.headers.get('set-cookie')!.split(';')[0],
-      session: (await response.json()) as any,
-    };
-  }
-  try {
-    const page = await pageForHost(new URL(origin).host);
-    assert.equal(page.status, 200);
-    assert.match(page.body, /AutoKeep/);
-    assert.equal((await pageForHost('untrusted.example')).status, 403);
-    assert.equal(
-      (
-        await fetch(`${root}/auth/login`, {
-          method: 'POST',
-          headers: { origin: 'https://untrusted.example', 'content-type': 'application/json' },
-          body: '{}',
-        })
-      ).status,
-      403,
-    );
-    assert.equal((await request('/session')).status, 401);
-    const admin = await login('marina@autokeep.local');
-    const driver = await login('lucas@autokeep.local');
-    const personal = await login('ana@autokeep.local');
-    const org = `/organizations/${admin.session.memberships[0].organizationId}`;
-    assert.equal(
-      (await request(`${org}/dashboard`, 'GET', undefined, personal.cookie)).status,
-      403,
-    );
-    assert.equal((await request(`${org}/members`, 'GET', undefined, driver.cookie)).status, 403);
-    const fleet = (await (
-      await request(`${org}/dashboard`, 'GET', undefined, admin.cookie)
-    ).json()) as any;
-    assert.equal(fleet.vehicles.length, 1);
-    const car = `${org}/vehicles/${fleet.vehicles[0].id}`;
-    assert.equal((await request(`${car}/oil-changes`, 'POST', {}, driver.cookie)).status, 403);
-    assert.equal((await request(`${org}/vehicles`, 'POST', {}, driver.cookie)).status, 403);
-    const sent: string[] = [];
-    t.mock.method(https, 'request', (options, onResponse) => {
-      assert.equal(options.hostname, 'fcm.googleapis.com');
-      assert.equal(options.headers['Content-Encoding'], 'aes128gcm');
-      sent.push(options.path);
-      const response = Object.assign(new EventEmitter(), { statusCode: 201, headers: {} });
-      return Object.assign(new EventEmitter(), {
-        write: () => {},
-        end: () => {
-          onResponse(response);
-          response.emit('end');
-        },
-      });
+    const cookie = login.headers.get('set-cookie')!.split(';')[0];
+    const session = (await login.json()) as any;
+    assert.equal(session.memberships.length, 1);
+    assert.equal(session.memberships[0].kind, 'PERSONAL');
+    const orgId = session.memberships[0].organizationId;
+    const org = `/organizations/${orgId}`;
+    const otherId = 'a0000000-0000-4000-8000-000000000099';
+    const otherToken = randomBytes(32).toString('base64url');
+    await put(`USER#${otherId}`, 'PROFILE', {
+      id: otherId,
+      name: 'Outra pessoa',
+      email: 'other@example.com',
     });
-    const keys = {
-      p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
-      auth: randomBytes(16).toString('base64url'),
-    };
-    for (const [name, session] of [
-      ['admin', admin],
-      ['driver', driver],
-    ] as const) {
-      const endpoint = `https://fcm.googleapis.com/fcm/send/${name}`;
-      assert.equal(
-        (await request('/push/subscription', 'POST', { endpoint, keys }, session.cookie)).status,
-        204,
-      );
+    await put(`SESSION#${createHash('sha256').update(otherToken).digest('hex')}`, 'SESSION', {
+      userId: otherId,
+      expiresAt: Date.now() + 60000,
+    });
+    const otherCookie = `autokeep_session=${otherToken}`;
+    assert.equal((await request(`${org}/dashboard`, 'GET', undefined, otherCookie)).status, 403);
+    const legacyId = 'b0000000-0000-4000-8000-000000000099';
+    await put(`ORG#${legacyId}`, 'PROFILE', { id: legacyId, name: 'Frota legada', kind: 'FLEET' });
+    await put(`ORG#${legacyId}`, `MEMBER#${session.user.id}`, {
+      userId: session.user.id,
+      role: 'ADMIN',
+    });
+    await put(`USER#${session.user.id}`, `ORG#${legacyId}`, {
+      organizationId: legacyId,
+      role: 'ADMIN',
+    });
+    const refreshed = (await (await request('/session', 'GET', undefined, cookie)).json()) as any;
+    assert.equal(refreshed.memberships.length, 1);
+    assert.equal(
+      (await request(`/organizations/${legacyId}/dashboard`, 'GET', undefined, cookie)).status,
+      403,
+    );
+    assert.ok(await get(`ORG#${legacyId}`, 'PROFILE'));
+    for (const path of ['/organizations', `${org}/invitations`, '/invitations/accept']) {
+      assert.equal((await request(path, 'POST', {}, cookie)).status, 404);
     }
-    await runMaintenancePush();
-    sent.length = 0;
     const created = await request(
       `${org}/vehicles`,
       'POST',
       {
-        name: 'Veículo vencido',
+        name: 'Veículo de teste',
         plate: 'ABC1D23',
         year: 2020,
         oilType: 'MINERAL',
@@ -154,47 +119,113 @@ test('DynamoDB Local: autenticação, isolamento, RBAC, convites e notificaçõe
         lastOilChangeKm: 10000,
         lastOilChangeDate: '2025-01-01T00:00:00Z',
       },
-      admin.cookie,
+      cookie,
     );
     assert.equal(created.status, 201);
-    const createdId = ((await created.json()) as any).id;
-    await Promise.all([runMaintenancePush(), runMaintenancePush()]);
-    assert.deepEqual(sent, ['/fcm/send/admin']);
+    const carId = ((await created.json()) as any).id;
+    const car = `${org}/vehicles/${carId}`;
+    assert.equal((await request(car, 'GET', undefined, cookie)).status, 200);
+    assert.equal((await request(car, 'GET', undefined, otherCookie)).status, 403);
+    assert.equal((await request(`${car}/driver`, 'PUT', { driverId: null }, cookie)).status, 404);
+    assert.equal((await request(`${org}/members`, 'GET', undefined, cookie)).status, 404);
+    const subscriptionEndpoint = 'https://fcm.googleapis.com/fcm/send/personal';
+    const keys = {
+      p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
+      auth: randomBytes(16).toString('base64url'),
+    };
     assert.equal(
-      (await request(`${org}/vehicles/${createdId}`, 'GET', undefined, driver.cookie)).status,
-      404,
+      (
+        await request(
+          '/push/subscription',
+          'POST',
+          { endpoint: subscriptionEndpoint, keys },
+          cookie,
+        )
+      ).status,
+      204,
     );
+    const sent: string[] = [];
+    t.mock.method(https, 'request', (options, callback) => {
+      assert.equal(options.hostname, 'fcm.googleapis.com');
+      sent.push(options.path);
+      const response = Object.assign(new EventEmitter(), { statusCode: 201, headers: {} });
+      return Object.assign(new EventEmitter(), {
+        write: () => {},
+        end: () => {
+          callback(response);
+          response.emit('end');
+        },
+      });
+    });
+    await Promise.all([runMaintenancePush(), runMaintenancePush()]);
+    assert.deepEqual(sent, ['/fcm/send/personal']);
     const notices = (await (
-      await request(`${org}/notifications`, 'GET', undefined, admin.cookie)
+      await request(`${org}/notifications`, 'GET', undefined, cookie)
     ).json()) as any;
-    assert.ok(notices.notifications.some((n: any) => n.vehicleId === createdId));
+    assert.ok(notices.notifications.some((n: any) => n.vehicleId === carId));
     const repeated = (await (
-      await request(`${org}/notifications`, 'GET', undefined, admin.cookie)
+      await request(`${org}/notifications`, 'GET', undefined, cookie)
     ).json()) as any;
     assert.equal(repeated.notifications.length, notices.notifications.length);
-    assert.equal(
-      (await request(`${org}/notifications/read`, 'POST', {}, admin.cookie)).status,
-      200,
-    );
+    assert.equal((await request(`${org}/notifications/read`, 'POST', {}, cookie)).status, 200);
     const read = (await (
-      await request(`${org}/notifications`, 'GET', undefined, admin.cookie)
+      await request(`${org}/notifications`, 'GET', undefined, cookie)
     ).json()) as any;
     assert.ok(read.notifications.every((n: any) => n.readAt));
-    const invited = await request(
-      `${org}/invitations`,
-      'POST',
-      { email: 'new@autokeep.local' },
-      admin.cookie,
+    assert.equal(
+      (
+        await request(
+          `${car}/odometer`,
+          'POST',
+          { odometer: 14999, source: 'MANUAL', measuredAt: new Date().toISOString() },
+          cookie,
+        )
+      ).status,
+      400,
     );
-    assert.equal(invited.status, 201);
-    const invitation = (await invited.json()) as any;
-    assert.ok(invitation.invitationUrl.startsWith(`${origin}/#invite=`));
-    const token = invitation.invitationUrl.split('#invite=')[1];
-    const registration = { token, name: 'Novo motorista', password: 'new-driver-test-password' };
-    assert.equal((await request('/auth/register-invited', 'POST', registration)).status, 201);
-    assert.equal((await request('/auth/register-invited', 'POST', registration)).status, 404);
-    assert.equal((await request('/auth/logout', 'POST', {}, driver.cookie)).status, 204);
-    assert.equal((await request('/session', 'GET', undefined, driver.cookie)).status, 401);
+    assert.equal(
+      (
+        await request(
+          `${car}/odometer`,
+          'POST',
+          { odometer: 15100, source: 'OBD2', measuredAt: new Date().toISOString() },
+          cookie,
+        )
+      ).status,
+      201,
+    );
+    assert.equal(
+      (
+        await request(
+          `${car}/oil-changes`,
+          'POST',
+          { odometer: 15100, oilType: 'SYNTHETIC', changedAt: new Date().toISOString() },
+          cookie,
+        )
+      ).status,
+      201,
+    );
+    const history = (await (
+      await request(`${car}/history`, 'GET', undefined, cookie)
+    ).json()) as any;
+    assert.ok(history.readings.some((r: any) => r.odometer === 15100 && r.source === 'OBD2'));
+    assert.ok(
+      history.oilChanges.some((o: any) => o.odometer === 15100 && o.oilType === 'SYNTHETIC'),
+    );
+    assert.equal((await request(car, 'DELETE', {}, otherCookie)).status, 403);
+    assert.equal((await request(car, 'DELETE', {}, cookie)).status, 204);
+    assert.equal((await request(car, 'GET', undefined, cookie)).status, 404);
+    const audit = (await (await request(`${org}/audit`, 'GET', undefined, cookie)).json()) as any;
+    assert.ok(audit.events.some((event: any) => event.action === 'VEHICLE_ARCHIVED'));
+    assert.equal((await request('/health')).status, 200);
+    assert.equal((await request('/push/config', 'GET', undefined, cookie)).status, 200);
+    assert.equal(
+      (await request('/push/subscription', 'DELETE', { endpoint: subscriptionEndpoint }, cookie))
+        .status,
+      204,
+    );
+    assert.equal((await request('/auth/logout', 'POST', {}, cookie)).status, 204);
+    assert.equal((await request('/session', 'GET', undefined, cookie)).status, 401);
   } finally {
     await vite.close();
     server.closeAllConnections();

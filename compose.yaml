@@ -1,10 +1,5 @@
 name: autokeep-local
 services:
-  mail:
-    image: axllent/mailpit:v1.27
-    ports:
-      - '127.0.0.1:8025:8025'
-    restart: unless-stopped
   db:
     image: amazon/dynamodb-local:3.1.0
     user: root
@@ -23,20 +18,17 @@ services:
       CHOKIDAR_INTERVAL: 1000
       PORT: 8080
       APP_ORIGIN: ${AUTOKEEP_APP_ORIGIN:-http://localhost:8080}
-      VITE_MAILPIT_URL: ${AUTOKEEP_MAILPIT_URL:-http://localhost:8025}
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: local
       AWS_SECRET_ACCESS_KEY: local
       AWS_SESSION_TOKEN: ''
       DYNAMODB_ENDPOINT: http://db:8000
       DYNAMODB_TABLE: autokeep-local
-      DEMO_PASSWORD: ${DEMO_PASSWORD:?Execute npm run dev}
-      SEED_DEMO: 'true'
+      DEV_LOGIN_ENABLED: 'true'
+      AUTH_MODE: development
       PUSH_PUBLIC_KEY: ${PUSH_PUBLIC_KEY:-}
       PUSH_PRIVATE_KEY: ${PUSH_PRIVATE_KEY:-}
       PUSH_SUBJECT: ${PUSH_SUBJECT:-}
-      SMTP_HOST: mail
-      SMTP_PORT: 1025
     volumes:
       - ./src:/app/src
       - ./public:/app/public
@@ -44,7 +36,6 @@ services:
       - ./vite.config.ts:/app/vite.config.ts
     depends_on:
       - db
-      - mail
     restart: unless-stopped
 volumes:
   dynamodb-data:

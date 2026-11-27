@@ -1,17 +1,11 @@
-import { useState } from 'react';
-import { AlertCircle, Copy, Mail, Radio } from 'lucide-react';
-import type { Member, Vehicle } from '../shared/domain.js';
+import { AlertCircle, Radio } from 'lucide-react';
+import type { Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
 import { api, write } from './api.js';
 import { dayIso, Form, km, Modal, nowInput, todayInput } from './components.js';
-import { mailpitUrl } from './environment.js';
 
 export type DialogState =
-  | { type: 'create' }
-  | { type: 'reading' | 'oil' | 'assign' | 'archive'; vehicle: Vehicle }
-  | { type: 'invite' }
-  | { type: 'removeMember'; member: Member }
-  | { type: 'organization' };
+  { type: 'create' } | { type: 'reading' | 'oil' | 'archive'; vehicle: Vehicle };
 function OilOptions() {
   return (
     <>
@@ -27,19 +21,15 @@ function OilOptions() {
 export function ActionDialog({
   state,
   org,
-  members,
   onClose,
   onSaved,
 }: {
   state: DialogState;
   org: string;
-  members: Member[];
   onClose: () => void;
   onSaved: (message: string) => Promise<void>;
 }) {
   const base = `/organizations/${org}`;
-  const [inviteUrl, setInviteUrl] = useState(''),
-    [copied, setCopied] = useState(false);
   const v = 'vehicle' in state ? state.vehicle : null;
   const finish = async (message: string) => {
     await onSaved(message);
@@ -268,41 +258,6 @@ export function ActionDialog({
         </Form>
       </Modal>
     );
-  if (state.type === 'assign' && v)
-    return (
-      <Modal title="Atribuir motorista" subtitle={v.name} onClose={onClose}>
-        <Form
-          label="Salvar atribuição"
-          onCancel={onClose}
-          onSubmit={async (data) => {
-            await write(
-              `${base}/vehicles/${v.id}/driver`,
-              { driverId: data.get('driverId') || null },
-              'PUT',
-            );
-            await finish('Atribuição atualizada. Histórico preservado.');
-          }}
-        >
-          <label>
-            Motorista responsável
-            <select name="driverId" defaultValue={v.assignedDriverId ?? ''}>
-              <option value="">Sem motorista</option>
-              {members
-                .filter((m) => m.role === 'DRIVER')
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <p className="field-hint">
-            O motorista terá acesso a este veículo e poderá atualizar a quilometragem. A troca de
-            responsável preserva todas as leituras e manutenções.
-          </p>
-        </Form>
-      </Modal>
-    );
   if (state.type === 'archive' && v)
     return (
       <Modal title="Arquivar veículo?" subtitle={v.name} onClose={onClose}>
@@ -315,132 +270,9 @@ export function ActionDialog({
           }}
         >
           <p>
-            O veículo sairá da frota ativa e deixará de emitir alertas. O histórico de manutenção e
-            auditoria continuará guardado.
+            O veículo sairá da garagem ativa e deixará de emitir alertas. O histórico de manutenção
+            e auditoria continuará guardado.
           </p>
-        </Form>
-      </Modal>
-    );
-  if (state.type === 'removeMember')
-    return (
-      <Modal title="Remover motorista?" subtitle={state.member.name} onClose={onClose}>
-        <Form
-          label="Remover motorista"
-          onCancel={onClose}
-          onSubmit={async () => {
-            await api(`${base}/members/${state.member.id}`, { method: 'DELETE', body: '{}' });
-            await finish('Motorista removido da frota.');
-          }}
-        >
-          <p>
-            O acesso a esta frota será revogado. Primeiro desvincule todos os veículos atribuídos a
-            essa pessoa.
-          </p>
-        </Form>
-      </Modal>
-    );
-  if (state.type === 'invite')
-    return (
-      <Modal
-        title="Convidar motorista"
-        subtitle="A frota e as pessoas certas, no mesmo lugar."
-        onClose={onClose}
-      >
-        {inviteUrl ? (
-          <div className="invite-success">
-            <span className="empty-icon">
-              <Mail size={28} />
-            </span>
-            <h3>Convite pronto!</h3>
-            <p>
-              Válido por sete dias.{' '}
-              {mailpitUrl
-                ? 'O e-mail pode ser consultado no Mailpit.'
-                : 'Compartilhe o link com o motorista.'}
-            </p>
-            <label>
-              Link do convite
-              <input readOnly value={inviteUrl} />
-            </label>
-            <button
-              className="button primary"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(inviteUrl);
-                  setCopied(true);
-                } catch {
-                  setCopied(false);
-                }
-              }}
-            >
-              <Copy size={16} />
-              {copied ? 'Link copiado' : 'Copiar link'}
-            </button>
-            {mailpitUrl && (
-              <a href={mailpitUrl} target="_blank" rel="noreferrer" className="text-link">
-                Abrir caixa de e-mails
-              </a>
-            )}
-          </div>
-        ) : (
-          <Form
-            label="Criar convite"
-            onCancel={onClose}
-            onSubmit={async (data) => {
-              const result = await write<{ invitationUrl: string }>(`${base}/invitations`, {
-                email: data.get('email'),
-              });
-              setInviteUrl(result.invitationUrl);
-            }}
-          >
-            <label>
-              E-mail do motorista
-              <input
-                name="email"
-                type="email"
-                placeholder="nome@empresa.com"
-                required
-                autoFocus
-                maxLength={254}
-              />
-            </label>
-            <p className="field-hint">
-              Quem receber poderá criar uma conta local ou usar a conta existente para entrar como
-              motorista.
-            </p>
-          </Form>
-        )}
-      </Modal>
-    );
-  if (state.type === 'organization')
-    return (
-      <Modal
-        title="Criar um espaço"
-        subtitle="Uma garagem pessoal ou uma nova frota."
-        onClose={onClose}
-      >
-        <Form
-          label="Criar espaço"
-          onCancel={onClose}
-          onSubmit={async (data) => {
-            await write('/organizations', {
-              companyName: data.get('companyName'),
-              kind: data.get('kind'),
-            });
-            await finish('Espaço criado. Selecione-o no menu.');
-          }}
-        >
-          <label>
-            Nome
-            <input name="companyName" minLength={2} maxLength={100} required autoFocus />
-          </label>
-          <label>
-            Tipo
-            <select name="kind">
-              <option value="PERSONAL">Garagem pessoal</option>
-              <option value="FLEET">Frota</option>
-            </select>
-          </label>
         </Form>
       </Modal>
     );

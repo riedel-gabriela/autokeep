@@ -1,7 +1,8 @@
 export type OilType = 'MINERAL' | 'SEMI_SYNTHETIC' | 'SYNTHETIC';
 export type TrackingMode = 'MANUAL' | 'OBD2';
-export type Role = 'ADMIN' | 'DRIVER';
-export type OrganizationKind = 'PERSONAL' | 'FLEET';
+// Legacy storage uses ADMIN for the sole owner of a personal garage.
+export type Role = 'ADMIN';
+export type OrganizationKind = 'PERSONAL';
 export type Reading = {
   id: string;
   odometer: number;
@@ -27,8 +28,6 @@ export type Vehicle = {
   lastUpdateDate: string;
   lastOilChangeKm: number;
   lastOilChangeDate: string;
-  assignedDriverId: string | null;
-  assignedDriverName: string | null;
   avgDailyKm: number;
   predictedOdometer: number;
   calibrationDue: boolean;
@@ -45,7 +44,6 @@ export type Session = {
   user: { id: string; name: string; email: string };
   memberships: Membership[];
 };
-export type Member = { id: string; name: string; email: string; role: Role; assignedCount: number };
 export type OilChange = {
   id: string;
   odometer: number;

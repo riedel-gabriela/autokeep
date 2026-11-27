@@ -3,6 +3,8 @@
     "APP_ORIGIN": "http://localhost:3000",
     "DYNAMODB_TABLE": "autokeep-sam",
     "DYNAMODB_ENDPOINT": "http://dynamodb:8000",
-    "SEED_DEMO": "false"
+    "NODE_ENV": "development",
+    "DEV_LOGIN_ENABLED": "true",
+    "AUTH_MODE": "development"
   }
 }

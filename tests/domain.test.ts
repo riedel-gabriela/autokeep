@@ -22,8 +22,6 @@ const base = {
   lastUpdateDate: '2026-11-17T12:00:00Z',
   lastOilChangeKm: 10000,
   lastOilChangeDate: '2026-01-01T12:00:00Z',
-  assignedDriverId: null,
-  assignedDriverName: null,
   historicalEntries: [],
 };
 

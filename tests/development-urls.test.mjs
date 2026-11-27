@@ -10,12 +10,11 @@ test('desenvolvimento local ignora origem cloud e secrets herdados', () => {
     }),
     {
       appOrigin: 'http://localhost:8080',
-      mailpitUrl: 'http://localhost:8025',
     },
   );
 });
 
-test('Codespaces deriva portas distintas sem carregar secrets', () => {
+test('Codespaces deriva a porta da aplicação sem carregar secrets', () => {
   assert.deepEqual(
     developmentUrls({
       CODESPACES: 'true',
@@ -25,7 +24,6 @@ test('Codespaces deriva portas distintas sem carregar secrets', () => {
     }),
     {
       appOrigin: 'https://demo-space-123-8080.app.github.dev',
-      mailpitUrl: 'https://demo-space-123-8025.app.github.dev',
     },
   );
 });

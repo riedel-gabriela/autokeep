@@ -1,6 +1,5 @@
-import express, { type RequestHandler, type ErrorRequestHandler, type Response } from 'express';
+import express, { type ErrorRequestHandler, type Response } from 'express';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { compare, hash } from 'bcryptjs';
 import { parseCookie } from 'cookie';
 import { rateLimit } from 'express-rate-limit';
 import { z, ZodError } from 'zod';
@@ -26,7 +25,6 @@ import {
   subscriptionKey,
 } from './push.js';
 import { googleCallbackPath, googleConfiguration, googleEnabled } from './google.js';
-import { sendLocalMail } from './mail.js';
 import { createVehicleSchema, oilChangeSchema, readingSchema, uuid } from './validation.js';
 
 const origin = process.env.APP_ORIGIN || 'http://localhost:8080';
@@ -40,36 +38,25 @@ const userPublic = (user: Record<string, any>) => ({
   name: user.name,
   email: user.email,
 });
-const password = z.string().min(1).max(72);
 const email = z
   .email()
   .max(254)
-  .transform((v) => v.toLowerCase());
-const loginInput = z.object({ email, password }).strict();
-const invitationInput = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
-const workspaceSignup = z
-  .object({
-    kind: z.enum(['PERSONAL', 'FLEET']),
-    name: z.string().trim().min(2).max(100),
-  })
-  .strict();
-const googleStartInput = z
-  .object({
-    invitation: invitationInput.shape.token.optional(),
-    credentials: loginInput.optional(),
-    workspace: workspaceSignup.optional(),
-  })
-  .strict()
-  .refine(({ workspace, invitation, credentials }) => !workspace || (!invitation && !credentials));
+  .transform((value) => value.toLowerCase());
+const browserTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+const googleStartInput = z.object({}).strict();
 const oauthLifetime = 10 * 60_000;
 const oauthCookie = 'autokeep_google';
 const secureCookies = origin.startsWith('https://');
 const googleOAuthRequired = process.env.AUTH_MODE === 'google';
-const localDemoCredentialsEnabled =
-  !googleOAuthRequired &&
-  process.env.DYNAMODB_TABLE === 'autokeep-local' &&
-  process.env.DYNAMODB_ENDPOINT === 'http://db:8000' &&
-  process.env.SEED_DEMO === 'true';
+const developmentLoginEnabled =
+  process.env.NODE_ENV === 'development' &&
+  process.env.DEV_LOGIN_ENABLED === 'true' &&
+  !googleOAuthRequired;
+const developmentUser = {
+  id: 'a0000000-0000-4000-8000-000000000001',
+  name: 'Ana Souza',
+  email: 'ana@autokeep.local',
+};
 const oauthCookieOptions = {
   httpOnly: true,
   sameSite: 'lax' as const,
@@ -80,16 +67,6 @@ const oauthCookieOptions = {
 async function userByEmail(address: string) {
   const pointer = await get(`EMAIL#${address}`, 'USER');
   return pointer ? get(userKey(pointer.userId), 'PROFILE') : undefined;
-}
-
-async function authenticatePassword(input: z.infer<typeof loginInput>) {
-  const user = await userByEmail(input.email);
-  const valid = await compare(
-    input.password,
-    user?.passwordHash || '$2b$12$ylKop6NrdzvBR57FKgpFAus24xX1XJWbn90TliAu3Ln84h35jNAwu',
-  );
-  check(user?.passwordHash && valid, 401, 'INVALID_CREDENTIALS', 'E-mail ou senha inválidos.');
-  return user!;
 }
 
 async function openSession(res: Response, userId: string) {
@@ -112,101 +89,57 @@ async function openSession(res: Response, userId: string) {
   return memberships;
 }
 
-async function registerGoogleInvite(
-  token: string,
-  address: string,
-  name: string,
-  identityKey: string,
-) {
-  const inviteKey = `INVITE#${digest(token)}`;
-  const invite = await get(inviteKey, 'INVITE');
-  check(
-    invite && !invite.acceptedAt && invite.expiresAt > Date.now() && invite.email === address,
-    403,
-    'INVITATION_INVALID',
-    'Use a conta Google correspondente ao convite.',
-  );
-  return registerInvitedAccount(inviteKey, invite, name, { identityKey });
-}
-
-async function registerGoogleWorkspace(
-  workspace: z.infer<typeof workspaceSignup>,
-  address: string,
-  name: string,
-  identityKey: string,
-) {
+async function registerGoogleAccount(address: string, name: string, identityKey: string) {
   const userId = randomUUID();
-  const organizationId = randomUUID();
   await writeRegistration([
     { pk: userKey(userId), sk: 'PROFILE', data: { id: userId, name, email: address } },
     { pk: `EMAIL#${address}`, sk: 'USER', data: { userId } },
     { pk: identityKey, sk: 'USER', data: { userId } },
-    { pk: orgKey(organizationId), sk: 'PROFILE', data: { id: organizationId, ...workspace } },
-    { pk: orgKey(organizationId), sk: `MEMBER#${userId}`, data: { userId, role: 'ADMIN' } },
-    { pk: userKey(userId), sk: `ORG#${organizationId}`, data: { organizationId, role: 'ADMIN' } },
   ]);
   return userId;
 }
 
-async function registerInvitedAccount(
-  inviteKey: string,
-  invite: Record<string, any>,
-  name: string,
-  authentication: { identityKey: string } | { passwordHash: string },
-) {
-  const id = randomUUID();
-  const organizationId: string = invite.organizationId;
-  const profile = { id, name, email: invite.email };
-  await writeRegistration([
-    {
-      pk: userKey(id),
-      sk: 'PROFILE',
-      data:
-        'passwordHash' in authentication
-          ? { ...profile, passwordHash: authentication.passwordHash }
-          : profile,
-    },
-    { pk: `EMAIL#${invite.email}`, sk: 'USER', data: { userId: id } },
-    { pk: orgKey(organizationId), sk: `MEMBER#${id}`, data: { userId: id, role: 'DRIVER' } },
-    { pk: userKey(id), sk: `ORG#${organizationId}`, data: { organizationId, role: 'DRIVER' } },
-    ...('identityKey' in authentication
-      ? [{ pk: authentication.identityKey, sk: 'USER', data: { userId: id } }]
-      : []),
-    { pk: inviteKey, sk: 'INVITE', data: { ...invite, acceptedAt: now() }, unacceptedInvite: true },
-  ]);
-  return id;
-}
-
 async function userMemberships(id: string): Promise<Membership[]> {
-  const links = await query(userKey(id), 'ORG#');
-  return Promise.all(
-    links.map(async (link) => {
-      const org = await get(orgKey(link.organizationId), 'PROFILE');
-      return {
+  const memberships: Membership[] = [];
+  for (const link of await query(userKey(id), 'ORG#')) {
+    const organization = await get(orgKey(link.organizationId), 'PROFILE');
+    if (organization?.kind === 'PERSONAL' && link.role === 'ADMIN') {
+      memberships.push({
         organizationId: link.organizationId,
-        companyName: org?.name || '',
-        kind: org?.kind,
-        role: link.role,
-      } as Membership;
-    }),
-  );
+        companyName: organization.name,
+        kind: 'PERSONAL',
+        role: 'ADMIN',
+      });
+    }
+  }
+  if (memberships.length) return memberships;
+  // Stable ID makes provisioning idempotent without moving or deleting legacy data.
+  const hex = digest(`personal-garage:${id}`);
+  const organizationId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  await put(orgKey(organizationId), 'PROFILE', {
+    id: organizationId,
+    name: 'Minha garagem',
+    kind: 'PERSONAL',
+  });
+  await put(orgKey(organizationId), `MEMBER#${id}`, { userId: id, role: 'ADMIN' });
+  await put(userKey(id), `ORG#${organizationId}`, { organizationId, role: 'ADMIN' });
+  return [{ organizationId, companyName: 'Minha garagem', kind: 'PERSONAL', role: 'ADMIN' }];
 }
 
 async function member(orgId: string, userId: string) {
   const link = await get(orgKey(orgId), `MEMBER#${userId}`);
-  check(link, 403, 'FORBIDDEN', 'Você não tem acesso a este espaço.');
-  const org = await get(orgKey(orgId), 'PROFILE');
-  return { role: link.role as 'ADMIN' | 'DRIVER', kind: org?.kind as string };
+  const organization = await get(orgKey(orgId), 'PROFILE');
+  check(
+    link?.role === 'ADMIN' && organization?.kind === 'PERSONAL',
+    403,
+    'FORBIDDEN',
+    'Você não tem acesso a esta garagem.',
+  );
 }
 
-async function findCar(orgId: string, id: string, userId: string, role?: string) {
+async function findCar(orgId: string, id: string) {
   const car = await get(orgKey(orgId), `CAR#${id}`);
-  check(
-    car && !car.archivedAt && (role === 'ADMIN' || car.assignedDriverId === userId),
-    404,
-    'VEHICLE_NOT_FOUND',
-    'Veículo não encontrado.',
-  );
+  check(car && !car.archivedAt, 404, 'VEHICLE_NOT_FOUND', 'Veículo não encontrado.');
   return car;
 }
 
@@ -216,9 +149,6 @@ async function readings(id: string, limit?: number) {
 
 async function presentCar(car: Record<string, any>): Promise<Vehicle> {
   const history = await readings(car.id, 3);
-  const driver = car.assignedDriverId
-    ? await get(userKey(car.assignedDriverId), 'PROFILE')
-    : undefined;
   return enrichVehicle({
     id: car.id,
     organizationId: car.organizationId,
@@ -231,8 +161,6 @@ async function presentCar(car: Record<string, any>): Promise<Vehicle> {
     lastUpdateDate: car.lastUpdateDate,
     lastOilChangeKm: car.lastOilChangeKm,
     lastOilChangeDate: car.lastOilChangeDate,
-    assignedDriverId: car.assignedDriverId,
-    assignedDriverName: driver?.name || null,
     historicalEntries: history.slice(0, 3).map((r) => ({
       id: r.id,
       odometer: r.odometer,
@@ -245,13 +173,9 @@ async function presentCar(car: Record<string, any>): Promise<Vehicle> {
 export async function runMaintenancePush() {
   await deliverMaintenancePush(async (userId) => {
     const vehicles: Vehicle[] = [];
-    for (const membership of await query(userKey(userId), 'ORG#')) {
-      const key = orgKey(membership.organizationId);
-      const access = await get(key, `MEMBER#${userId}`);
-      if (!access) continue;
-      for (const car of await query(key, 'CAR#')) {
-        if (!car.archivedAt && (access.role === 'ADMIN' || car.assignedDriverId === userId))
-          vehicles.push(await presentCar(car));
+    for (const membership of await userMemberships(userId)) {
+      for (const car of await query(orgKey(membership.organizationId), 'CAR#')) {
+        if (!car.archivedAt) vehicles.push(await presentCar(car));
       }
     }
     return vehicles;
@@ -269,71 +193,12 @@ async function audit(orgId: string, userId: string, action: string, vehicleId?: 
   });
 }
 
-async function seedDemo() {
-  if (process.env.SEED_DEMO !== 'true') return;
-  const seed = await get('META', 'SEED');
-  if (seed?.done) return;
-  const demoPassword = process.env.DEMO_PASSWORD;
-  check(
-    demoPassword && demoPassword.length >= 16,
-    503,
-    'DEMO_PASSWORD_REQUIRED',
-    'Configure a senha de demonstração.',
-  );
-  const passwordHash = await hash(demoPassword, 12);
-  const users = [
-    { id: 'a0000000-0000-4000-8000-000000000001', name: 'Ana Souza', email: 'ana@autokeep.local' },
-    {
-      id: 'a0000000-0000-4000-8000-000000000002',
-      name: 'Marina Costa',
-      email: 'marina@autokeep.local',
-    },
-    {
-      id: 'a0000000-0000-4000-8000-000000000003',
-      name: 'Lucas Almeida',
-      email: 'lucas@autokeep.local',
-    },
-  ];
-  for (const user of users) {
-    await put(userKey(user.id), 'PROFILE', { ...user, passwordHash });
-    await put(`EMAIL#${user.email}`, 'USER', { userId: user.id });
+async function seedDevelopmentUser() {
+  if (!developmentLoginEnabled) return;
+  if (!(await get(userKey(developmentUser.id), 'PROFILE'))) {
+    await put(userKey(developmentUser.id), 'PROFILE', developmentUser);
   }
-  const personal = 'b0000000-0000-4000-8000-000000000001';
-  const fleet = 'b0000000-0000-4000-8000-000000000002';
-  await put(orgKey(personal), 'PROFILE', { id: personal, name: 'Minha garagem', kind: 'PERSONAL' });
-  await put(orgKey(fleet), 'PROFILE', { id: fleet, name: 'Horizonte Logística', kind: 'FLEET' });
-  for (const [orgId, userId, role] of [
-    [personal, users[0].id, 'ADMIN'],
-    [fleet, users[1].id, 'ADMIN'],
-    [fleet, users[2].id, 'DRIVER'],
-  ]) {
-    await put(orgKey(orgId), `MEMBER#${userId}`, { userId, role });
-    await put(userKey(userId), `ORG#${orgId}`, { organizationId: orgId, role });
-  }
-  const carId = 'c0000000-0000-4000-8000-000000000001';
-  const lastDate = new Date(Date.now() - 75 * 86_400_000).toISOString();
-  await put(orgKey(fleet), `CAR#${carId}`, {
-    id: carId,
-    organizationId: fleet,
-    name: 'Fiat Strada',
-    plate: 'GHT4J82',
-    year: 2024,
-    oilType: 'SEMI_SYNTHETIC',
-    trackingMode: 'MANUAL',
-    currentOdometer: 48360,
-    lastUpdateDate: now(),
-    lastOilChangeKm: 45000,
-    lastOilChangeDate: lastDate,
-    assignedDriverId: users[2].id,
-  });
-  await put(carKey(carId), `READING#${now()}#${randomUUID()}`, {
-    id: randomUUID(),
-    odometer: 48360,
-    measuredAt: now(),
-    source: 'MANUAL',
-    actorId: users[2].id,
-  });
-  await put('META', 'SEED', { done: true });
+  await userMemberships(developmentUser.id);
 }
 
 let initialized: Promise<void> | undefined;
@@ -358,7 +223,7 @@ export function createApp() {
         );
         check(req.is('application/json'), 415, 'JSON_REQUIRED', 'Envie os dados no formato JSON.');
       }
-      initialized ??= seedDemo().catch((error) => {
+      initialized ??= seedDevelopmentUser().catch((error) => {
         initialized = undefined;
         throw error;
       });
@@ -378,28 +243,24 @@ export function createApp() {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
   });
-  api.post('/auth/login', loginLimiter, async (req, res) => {
-    check(!googleOAuthRequired, 403, 'GOOGLE_LOGIN_REQUIRED', 'Entre com sua conta Google.');
-    const user = await authenticatePassword(loginInput.parse(req.body));
+  api.get('/auth/providers', (_req, res) =>
+    res.json({
+      google: googleEnabled && !developmentLoginEnabled,
+      development: developmentLoginEnabled,
+      password: false,
+    }),
+  );
+  api.post('/auth/dev-login', loginLimiter, async (req, res) => {
+    check(developmentLoginEnabled, 404, 'NOT_FOUND', 'Recurso não encontrado.');
+    z.object({}).strict().parse(req.body);
+    const user = await get(userKey(developmentUser.id), 'PROFILE');
+    check(user, 503, 'DEV_USER_UNAVAILABLE', 'Conta de desenvolvimento indisponível.');
     const memberships = await openSession(res, user.id);
     res.json({ user: userPublic(user), memberships });
   });
-  api.get('/auth/providers', (_req, res) =>
-    res.json({ google: googleEnabled, password: !googleOAuthRequired }),
-  );
-  api.get('/auth/demo-credentials', (_req, res) => {
-    check(
-      localDemoCredentialsEnabled && process.env.DEMO_PASSWORD,
-      404,
-      'DEMO_CREDENTIALS_UNAVAILABLE',
-      'Credenciais locais indisponíveis.',
-    );
-    res.json({ email: 'ana@autokeep.local', password: process.env.DEMO_PASSWORD });
-  });
   if (googleEnabled) {
     api.post('/auth/google/start', loginLimiter, async (req, res) => {
-      const { credentials, invitation, workspace } = googleStartInput.parse(req.body);
-      const user = credentials ? await authenticatePassword(credentials) : undefined;
+      googleStartInput.parse(req.body);
       const config = await googleConfiguration();
       const state = oidc.randomState();
       const nonce = oidc.randomNonce();
@@ -413,7 +274,6 @@ export function createApp() {
         nonce,
         code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
         code_challenge_method: 'S256',
-        ...(user ? { prompt: 'select_account' } : {}),
       });
       await put(
         `OAUTH#${digest(browserToken)}`,
@@ -423,9 +283,6 @@ export function createApp() {
           nonce,
           verifier,
           expiresAt,
-          invitation,
-          workspace: workspace && JSON.stringify(workspace),
-          userId: user?.id,
           ttl: Math.floor(expiresAt / 1000),
         },
         true,
@@ -436,10 +293,9 @@ export function createApp() {
     api.get('/auth/google/callback', async (req, res) => {
       if (req.method !== 'GET') return void res.sendStatus(405);
       res.setHeader('Referrer-Policy', 'no-referrer');
-      let invitation: string | undefined;
       let stage = 'read_oauth_state';
       try {
-        const browserToken = invitationInput.shape.token.safeParse(
+        const browserToken = browserTokenSchema.safeParse(
           parseCookie(req.headers.cookie || '')[oauthCookie],
         );
         check(browserToken.success, 400, 'OAUTH_STATE', 'Login expirado.');
@@ -454,7 +310,6 @@ export function createApp() {
         const attempt = await take(key, 'GOOGLE');
         check(attempt, 400, 'OAUTH_STATE', 'Login expirado.');
         res.clearCookie(oauthCookie, oauthCookieOptions);
-        invitation = attempt.invitation;
         const callback = new URL(googleCallbackPath, origin);
         callback.search = new URL(req.originalUrl, origin).search;
         stage = 'load_google_config';
@@ -471,7 +326,9 @@ export function createApp() {
         const identityKey = `OIDC#${digest(JSON.stringify([claims.iss, claims.sub]))}`;
         const identity = await get(identityKey, 'USER');
         let userId: string;
-        if (attempt.userId || !identity) {
+        if (identity) {
+          userId = identity.userId;
+        } else {
           const address = email.safeParse(claims.email);
           check(
             claims.email_verified === true && address.success,
@@ -479,106 +336,41 @@ export function createApp() {
             'OAUTH_EMAIL',
             'Use um e-mail Google verificado.',
           );
-          if (attempt.userId) {
-            stage = 'link_google_identity';
-            const user = await get(userKey(attempt.userId), 'PROFILE');
-            check(
-              user && user.email === address.data && (!identity || identity.userId === user.id),
-              403,
-              'OAUTH_LINK',
-              'Use a conta Google com o mesmo e-mail do AutoKeep.',
-            );
-            if (!identity) await put(identityKey, 'USER', { userId: user.id }, true);
-            userId = user.id;
+          const existingUser = await userByEmail(address.data);
+          if (existingUser) {
+            await put(identityKey, 'USER', { userId: existingUser.id }, true);
+            userId = existingUser.id;
           } else {
-            stage = 'create_or_find_user';
-            const givenName = typeof claims.name === 'string' && claims.name.trim();
-            const name = (givenName || address.data).slice(0, 100);
-            if (attempt.workspace) {
-              userId = await registerGoogleWorkspace(
-                workspaceSignup.parse(JSON.parse(attempt.workspace)),
-                address.data,
-                name,
-                identityKey,
-              );
-            } else if (invitation) {
-              userId = await registerGoogleInvite(invitation, address.data, name, identityKey);
-            } else {
-              const existingUser = await userByEmail(address.data);
-              if (existingUser) {
-                await put(identityKey, 'USER', { userId: existingUser.id }, true);
-                userId = existingUser.id;
-              } else {
-                userId = await registerGoogleWorkspace(
-                  { kind: 'PERSONAL', name: 'Minha garagem' },
-                  address.data,
-                  name,
-                  identityKey,
-                );
-              }
-            }
-            invitation = undefined;
+            const name = (
+              (typeof claims.name === 'string' && claims.name.trim()) ||
+              address.data
+            ).slice(0, 100);
+            userId = await registerGoogleAccount(address.data, name, identityKey);
           }
-        } else {
-          userId = identity.userId;
         }
         stage = 'open_session';
         check(await get(userKey(userId), 'PROFILE'), 403, 'OAUTH_IDENTITY', 'Conta indisponível.');
         await openSession(res, userId);
-        res.redirect(303, invitation ? `/#invite=${invitation}` : '/');
+        res.redirect(303, '/');
       } catch (error) {
         const code = error instanceof AppError ? error.code : 'OAUTH_FAILED';
         const errorName = error instanceof Error ? error.name : 'UnknownError';
-        console.error(JSON.stringify({ event: 'google_login_failed', stage, code, errorName }));
-        res.redirect(303, `/?googleError=${code}${invitation ? `#invite=${invitation}` : ''}`);
+        const oauthError = error instanceof oidc.ResponseBodyError ? error.error : undefined;
+        const oauthStatus = error instanceof oidc.ResponseBodyError ? error.status : undefined;
+        console.error(
+          JSON.stringify({
+            event: 'google_login_failed',
+            stage,
+            code,
+            errorName,
+            oauthError,
+            oauthStatus,
+          }),
+        );
+        res.redirect(303, `/?googleError=${code}`);
       }
     });
   }
-  api.post('/auth/register-invited', loginLimiter, async (req, res) => {
-    check(
-      !googleOAuthRequired,
-      403,
-      'GOOGLE_LOGIN_REQUIRED',
-      'Aceite seu convite com sua conta Google.',
-    );
-    const input = invitationInput
-      .extend({ name: z.string().trim().min(2).max(100), password: password.min(12) })
-      .parse(req.body);
-    const inviteKey = `INVITE#${digest(input.token)}`;
-    const invite = await get(inviteKey, 'INVITE');
-    check(
-      invite && !invite.acceptedAt && invite.expiresAt > Date.now(),
-      404,
-      'INVITATION_INVALID',
-      'Convite inválido ou expirado.',
-    );
-    check(
-      !(await userByEmail(invite.email)),
-      409,
-      'ACCOUNT_EXISTS',
-      'Este e-mail já tem conta. Entre para aceitar o convite.',
-    );
-    const passwordHash = await hash(input.password, 12);
-    if (googleEnabled) {
-      await registerInvitedAccount(inviteKey, invite, input.name, { passwordHash });
-      return void res.status(201).json({ ok: true });
-    }
-    const id = randomUUID();
-    await put(
-      userKey(id),
-      'PROFILE',
-      { id, name: input.name, email: invite.email, passwordHash },
-      true,
-    );
-    await put(`EMAIL#${invite.email}`, 'USER', { userId: id }, true);
-    await put(orgKey(invite.organizationId), `MEMBER#${id}`, { userId: id, role: 'DRIVER' });
-    await put(userKey(id), `ORG#${invite.organizationId}`, {
-      organizationId: invite.organizationId,
-      role: 'DRIVER',
-    });
-    await put(inviteKey, 'INVITE', { ...invite, acceptedAt: now() });
-    res.status(201).json({ ok: true });
-  });
   api.use(async (req, res, next) => {
     try {
       const token = parseCookie(req.headers.cookie || '').autokeep_session;
@@ -649,49 +441,10 @@ export function createApp() {
   api.get('/me/organizations', async (_req, res) =>
     res.json({ organizations: await userMemberships(res.locals.user.id) }),
   );
-  api.post('/organizations', async (req, res) => {
-    const input = z
-      .object({
-        companyName: z.string().trim().min(2).max(100),
-        kind: z.enum(['PERSONAL', 'FLEET']).default('FLEET'),
-      })
-      .strict()
-      .parse(req.body);
-    const id = randomUUID(),
-      userId = res.locals.user.id;
-    await put(orgKey(id), 'PROFILE', { id, name: input.companyName, kind: input.kind }, true);
-    await put(orgKey(id), `MEMBER#${userId}`, { userId, role: 'ADMIN' });
-    await put(userKey(userId), `ORG#${id}`, { organizationId: id, role: 'ADMIN' });
-    await audit(id, userId, 'ORGANIZATION_CREATED');
-    res.status(201).json({ id });
-  });
-  api.post('/invitations/accept', async (req, res) => {
-    const input = invitationInput.parse(req.body);
-    const invite = await get(`INVITE#${digest(input.token)}`, 'INVITE');
-    check(
-      invite &&
-        !invite.acceptedAt &&
-        invite.expiresAt > Date.now() &&
-        invite.email === res.locals.user.email,
-      403,
-      'INVITATION_INVALID',
-      'O convite deve corresponder ao e-mail da sua conta e estar válido.',
-    );
-    await put(orgKey(invite.organizationId), `MEMBER#${res.locals.user.id}`, {
-      userId: res.locals.user.id,
-      role: 'DRIVER',
-    });
-    await put(userKey(res.locals.user.id), `ORG#${invite.organizationId}`, {
-      organizationId: invite.organizationId,
-      role: 'DRIVER',
-    });
-    await put(`INVITE#${digest(input.token)}`, 'INVITE', { ...invite, acceptedAt: now() });
-    res.json({ ok: true });
-  });
   api.param('organizationId', async (_req, res, next, raw) => {
     try {
       res.locals.organizationId = uuid.parse(raw);
-      res.locals.membership = await member(raw, res.locals.user.id);
+      await member(raw, res.locals.user.id);
       next();
     } catch (error) {
       next(error);
@@ -700,42 +453,20 @@ export function createApp() {
   api.param('vehicleId', async (_req, res, next, raw) => {
     try {
       res.locals.vehicleId = uuid.parse(raw);
-      res.locals.vehicle = await findCar(
-        res.locals.organizationId,
-        raw,
-        res.locals.user.id,
-        res.locals.membership.role,
-      );
+      res.locals.vehicle = await findCar(res.locals.organizationId, raw);
       next();
     } catch (error) {
       next(error);
     }
   });
-  const admin: RequestHandler = (_req, res, next) => {
-    try {
-      check(
-        res.locals.membership.role === 'ADMIN',
-        403,
-        'ADMIN_REQUIRED',
-        'Esta ação é exclusiva do gestor.',
-      );
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
   const org = '/organizations/:organizationId';
   const car = `${org}/vehicles/:vehicleId`;
   api.get(`${org}/dashboard`, async (_req, res) => {
     const all = await query(orgKey(res.locals.organizationId), 'CAR#');
-    const visible = all.filter(
-      (v) =>
-        !v.archivedAt &&
-        (res.locals.membership.role === 'ADMIN' || v.assignedDriverId === res.locals.user.id),
-    );
+    const visible = all.filter((vehicle) => !vehicle.archivedAt);
     res.json({ vehicles: await Promise.all(visible.map(presentCar)) });
   });
-  api.post(`${org}/vehicles`, admin, async (req, res) => {
+  api.post(`${org}/vehicles`, async (req, res) => {
     const input = createVehicleSchema.parse(req.body);
     const id = randomUUID(),
       time = now(),
@@ -756,7 +487,6 @@ export function createApp() {
         lastUpdateDate: time,
         lastOilChangeKm: input.lastOilChangeKm,
         lastOilChangeDate: input.lastOilChangeDate,
-        assignedDriverId: res.locals.membership.role === 'DRIVER' ? userId : null,
       },
       true,
     );
@@ -809,7 +539,7 @@ export function createApp() {
     await audit(v.organizationId, res.locals.user.id, 'ODOMETER_UPDATED', v.id);
     res.status(201).json({ ok: true });
   });
-  api.post(`${car}/oil-changes`, admin, async (req, res) => {
+  api.post(`${car}/oil-changes`, async (req, res) => {
     const input = oilChangeSchema.parse(req.body),
       v = res.locals.vehicle;
     check(
@@ -886,112 +616,16 @@ export function createApp() {
     );
     res.json({ readings: rs, oilChanges });
   });
-  api.put(`${car}/driver`, admin, async (req, res) => {
-    const { driverId } = z.object({ driverId: uuid.nullable() }).strict().parse(req.body);
-    const v = res.locals.vehicle;
-    check(
-      res.locals.membership.kind === 'FLEET',
-      400,
-      'FLEET_REQUIRED',
-      'Atribuições estão disponíveis para frotas.',
-    );
-    if (driverId)
-      check(
-        (await member(v.organizationId, driverId)).role === 'DRIVER',
-        400,
-        'DRIVER_REQUIRED',
-        'Selecione um motorista da frota.',
-      );
-    await put(orgKey(v.organizationId), `CAR#${v.id}`, { ...v, assignedDriverId: driverId });
-    await audit(v.organizationId, res.locals.user.id, 'DRIVER_ASSIGNED', v.id);
-    res.json({ ok: true });
-  });
-  api.delete(car, admin, async (_req, res) => {
+  api.delete(car, async (_req, res) => {
     const v = res.locals.vehicle;
     await put(orgKey(v.organizationId), `CAR#${v.id}`, {
       ...v,
       archivedAt: now(),
-      assignedDriverId: null,
     });
     await audit(v.organizationId, res.locals.user.id, 'VEHICLE_ARCHIVED', v.id);
     res.status(204).end();
   });
-  api.get(`${org}/members`, admin, async (_req, res) => {
-    const links = await query(orgKey(res.locals.organizationId), 'MEMBER#');
-    const cars = await query(orgKey(res.locals.organizationId), 'CAR#');
-    const members = await Promise.all(
-      links.map(async (link) => {
-        const user = await get(userKey(link.userId), 'PROFILE');
-        return {
-          id: link.userId,
-          name: user?.name || '',
-          email: user?.email || '',
-          role: link.role,
-          assignedCount: cars.filter((v) => !v.archivedAt && v.assignedDriverId === link.userId)
-            .length,
-        };
-      }),
-    );
-    res.json({ members });
-  });
-  api.delete(`${org}/members/:memberId`, admin, async (req, res) => {
-    const id = uuid.parse(req.params.memberId),
-      orgId = res.locals.organizationId;
-    check(
-      (await member(orgId, id)).role === 'DRIVER',
-      400,
-      'CANNOT_REMOVE_ADMIN',
-      'Gestores não podem ser removidos por esta ação.',
-    );
-    const cars = await query(orgKey(orgId), 'CAR#');
-    check(
-      !cars.some((v) => !v.archivedAt && v.assignedDriverId === id),
-      409,
-      'DRIVER_HAS_VEHICLES',
-      'Desvincule os veículos antes de remover o motorista.',
-    );
-    await remove(orgKey(orgId), `MEMBER#${id}`);
-    await remove(userKey(id), `ORG#${orgId}`);
-    await audit(orgId, res.locals.user.id, 'MEMBER_REMOVED');
-    res.status(204).end();
-  });
-  api.post(`${org}/invitations`, admin, async (req, res) => {
-    check(
-      res.locals.membership.kind === 'FLEET',
-      400,
-      'FLEET_REQUIRED',
-      'Convites estão disponíveis para frotas.',
-    );
-    const { email: address } = z.object({ email }).strict().parse(req.body);
-    const existing = await userByEmail(address);
-    if (existing)
-      check(
-        !(await get(orgKey(res.locals.organizationId), `MEMBER#${existing.id}`)),
-        409,
-        'ALREADY_MEMBER',
-        'Esta pessoa já faz parte da frota.',
-      );
-    const token = randomBytes(32).toString('base64url');
-    await put(`INVITE#${digest(token)}`, 'INVITE', {
-      email: address,
-      organizationId: res.locals.organizationId,
-      expiresAt: Date.now() + 7 * 86_400_000,
-      ttl: Math.floor(Date.now() / 1000) + 7 * 86_400,
-    });
-    await audit(res.locals.organizationId, res.locals.user.id, 'INVITATION_CREATED');
-    const invitationUrl = `${origin}/#invite=${token}`;
-    try {
-      await sendLocalMail(
-        address,
-        'Seu convite para o AutoKeep',
-        `Você recebeu um convite para uma frota.\n\n${invitationUrl}\n\nVálido por sete dias.`,
-      );
-    } catch {
-      console.error(JSON.stringify({ event: 'invitation_mail_failed' }));
-    }
-    res.status(201).json({ invitationUrl, expiresInDays: 7 });
-  });
-  api.get(`${org}/audit`, admin, async (_req, res) => {
+  api.get(`${org}/audit`, async (_req, res) => {
     const logs = await query(orgKey(res.locals.organizationId), 'AUDIT#', 100);
     const events = await Promise.all(
       logs.map(async (log) => ({
@@ -1010,10 +644,7 @@ export function createApp() {
     const orgId = res.locals.organizationId,
       user = res.locals.user;
     // Evaluate only vehicles visible to this recipient; no table scans or paid scheduler.
-    const cars = (await query(orgKey(orgId), 'CAR#')).filter(
-      (v) =>
-        !v.archivedAt && (res.locals.membership.role === 'ADMIN' || v.assignedDriverId === user.id),
-    );
+    const cars = (await query(orgKey(orgId), 'CAR#')).filter((vehicle) => !vehicle.archivedAt);
     const partition = `NOTIFY#${orgId}#${user.id}`;
     for (const car of cars) {
       const v = await presentCar(car);

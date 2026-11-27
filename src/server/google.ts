@@ -7,6 +7,18 @@ const secretArn = process.env.GOOGLE_CLIENT_SECRET_ARN;
 export const googleEnabled = Boolean(clientId && secretArn);
 export const googleCallbackPath = '/api/auth/google/callback';
 
+export function parseGoogleClientSecret(value: string): string {
+  let secret: unknown = value.trim();
+  if (value.trim().startsWith('{')) {
+    const fields = JSON.parse(value);
+    secret = fields.client_secret ?? fields.GOOGLE_CLIENT_SECRET ?? fields['autokeep/google-oauth-client-secret'];
+  }
+  if (typeof secret !== 'string' || !secret.trim()) {
+    throw new Error('GOOGLE_CLIENT_SECRET_INVALID_FORMAT');
+  }
+  return secret.trim();
+}
+
 let configuration: Promise<oidc.Configuration> | undefined;
 export function googleConfiguration() {
   configuration ??= loadConfiguration().catch((error) => {
@@ -25,7 +37,7 @@ async function loadConfiguration() {
   const config = await oidc.discovery(
     new URL('https://accounts.google.com'),
     clientId!,
-    SecretString.trim(),
+    parseGoogleClientSecret(SecretString),
     undefined,
     { timeout: 4 },
   );

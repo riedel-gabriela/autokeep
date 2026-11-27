@@ -1,7 +1,7 @@
 // Only public URLs belong here. AWS secrets are never copied into browser variables.
 export function developmentUrls(env = process.env) {
   if (env.CODESPACES !== 'true') {
-    return { appOrigin: 'http://localhost:8080', mailpitUrl: 'http://localhost:8025' };
+    return { appOrigin: 'http://localhost:8080' };
   }
   const name = env.CODESPACE_NAME;
   const domain = env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
@@ -15,6 +15,5 @@ export function developmentUrls(env = process.env) {
   }
   return {
     appOrigin: `https://${name}-8080.${domain}`,
-    mailpitUrl: `https://${name}-8025.${domain}`,
   };
 }

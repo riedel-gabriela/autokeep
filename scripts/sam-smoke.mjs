@@ -7,10 +7,10 @@ assert.deepEqual(await health.json(), { status: 'ok' });
 const session = await fetch(`${base}/session`, { signal: AbortSignal.timeout(30_000) });
 assert.equal(session.status, 401, 'Sessão ausente deve ser rejeitada.');
 assert.equal((await session.json()).code, 'UNAUTHENTICATED');
-const invalidOrigin = await fetch(`${base}/auth/login`, {
+const invalidOrigin = await fetch(`${base}/auth/dev-login`, {
   method: 'POST',
   headers: { 'content-type': 'application/json', origin: 'http://invalid.example' },
-  body: JSON.stringify({ email: 'test@autokeep.local', password: 'not-a-real-password' }),
+  body: JSON.stringify({}),
   signal: AbortSignal.timeout(30_000),
 });
 assert.equal(invalidOrigin.status, 403, 'Escrita de origem diferente deve ser rejeitada.');

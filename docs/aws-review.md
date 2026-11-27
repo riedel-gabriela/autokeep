@@ -1,5 +1,7 @@
 # Verificação AWS — histórico de 17–18/11/2026
 
+> Documento histórico: descreve observações de 17–18/11/2026, não a configuração atual. Para executar a versão atual, use o [README](../README.md), a [arquitetura](architecture.md) e o [guia Pulumi](../pulumi-start-aws/README.md).
+
 > As tabelas iniciais registram inspeções anteriores à hospedagem, não o estado
 > atual completo. A seção final registra o deploy confirmado em 18/11/2026.
 

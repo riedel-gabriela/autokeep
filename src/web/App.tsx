@@ -9,7 +9,6 @@ import {
   CarFront,
   Check,
   CheckCheck,
-  ChevronDown,
   ChevronRight,
   ClipboardList,
   Droplets,
@@ -19,20 +18,15 @@ import {
   List,
   LoaderCircle,
   LogOut,
-  Mail,
   Menu,
   Plus,
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
-  Trash2,
   TrendingUp,
-  UserRound,
-  UsersRound,
   X,
 } from 'lucide-react';
-import type { AuditEvent, Member, Notification, Session, Vehicle } from '../shared/domain.js';
+import type { AuditEvent, Notification, Session, Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
 import { api, ApiError, write } from './api.js';
 import { currentPushSubscription, PushSettings } from './PushSettings.js';
@@ -52,87 +46,77 @@ import {
 import { ActionDialog, type DialogState } from './forms.js';
 import { Login } from './Login.js';
 import { VehicleDetail } from './VehicleDetail.js';
-import { localDevelopment as local, mailpitUrl } from './environment.js';
 
-type Page = 'overview' | 'vehicles' | 'drivers' | 'history' | 'alerts';
+type Page = 'overview' | 'vehicles' | 'history' | 'alerts';
 const actionLabels: Record<string, string> = {
   VEHICLE_CREATED: 'Veículo adicionado',
   ODOMETER_UPDATED: 'Quilometragem atualizada',
   OIL_CHANGED: 'Troca de óleo registrada',
-  DRIVER_ASSIGNED: 'Motorista atualizado',
   VEHICLE_ARCHIVED: 'Veículo arquivado',
-  MEMBER_REMOVED: 'Motorista removido',
-  INVITATION_CREATED: 'Convite criado',
-  INVITATION_ACCEPTED: 'Convite aceito',
-  ORGANIZATION_CREATED: 'Espaço criado',
+  ORGANIZATION_CREATED: 'Garagem criada',
 };
+const pageNames: Record<Page, string> = {
+  overview: 'Visão geral',
+  vehicles: 'Minha garagem',
+  history: 'Histórico',
+  alerts: 'Notificações',
+};
+const nav = [
+  { id: 'overview' as const, icon: LayoutDashboard, label: 'Visão geral' },
+  { id: 'vehicles' as const, icon: CarFront, label: 'Meu carro' },
+  { id: 'history' as const, icon: ClipboardList, label: 'Histórico' },
+  { id: 'alerts' as const, icon: Bell, label: 'Notificações' },
+];
 const priority = { DUE: 0, WARNING: 1, OK: 2 };
 
 export function App() {
-  const [session, setSession] = useState<Session | null>(null),
-    [authLoading, setAuthLoading] = useState(true);
-  const [orgId, setOrgId] = useState(''),
-    [page, setPage] = useState<Page>(() =>
-      new URLSearchParams(location.search).get('view') === 'alerts' ? 'alerts' : 'overview',
-    ),
-    [mobileMenu, setMobileMenu] = useState(false);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]),
-    [members, setMembers] = useState<Member[]>([]),
-    [events, setEvents] = useState<AuditEvent[]>([]),
-    [notifications, setNotifications] = useState<Notification[]>([]);
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState(''),
-    [toast, setToast] = useState('');
-  const [dialog, setDialog] = useState<DialogState | null>(null),
-    [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
-  const [query, setQuery] = useState(''),
-    [filter, setFilter] = useState('ALL'),
-    [grid, setGrid] = useState(false);
-  const [invitation, setInvitation] = useState<string | null>(() => {
-    const token = new URLSearchParams(location.hash.slice(1)).get('invite');
-    return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
-  });
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [page, setPage] = useState<Page>(() =>
+    new URLSearchParams(location.search).get('view') === 'alerts' ? 'alerts' : 'overview',
+  );
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('ALL');
+  const [grid, setGrid] = useState(false);
   const requestGeneration = useRef(0);
-  const membership =
-    session?.memberships.find((m) => m.organizationId === orgId) ?? session?.memberships[0];
-  const fleet = membership?.kind === 'FLEET',
-    canManage = membership?.role === 'ADMIN';
+  const garage = session?.memberships.find((membership) => membership.kind === 'PERSONAL');
+  const orgId = garage?.organizationId ?? '';
+
   useEffect(() => {
     api<Session>('/session')
-      .then((s) => {
-        setSession(s);
-        setOrgId(s.memberships[0]?.organizationId ?? '');
-      })
+      .then(setSession)
       .catch(() => {})
       .finally(() => setAuthLoading(false));
   }, []);
   useEffect(() => {
-    if (toast) {
-      const id = setTimeout(() => setToast(''), 4500);
-      return () => clearTimeout(id);
-    }
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(''), 4500);
+    return () => clearTimeout(timer);
   }, [toast]);
   const load = useCallback(
     async (silent = false) => {
-      if (!orgId || !membership) return;
+      if (!orgId) return;
       const generation = ++requestGeneration.current;
       if (!silent) setBusy(true);
       setError('');
       try {
         const base = `/organizations/${orgId}`;
-        const [dashboard, people, audit, alerts] = await Promise.all([
+        const [dashboard, audit, alerts] = await Promise.all([
           api<{ vehicles: Vehicle[] }>(`${base}/dashboard`),
-          membership.role === 'ADMIN'
-            ? api<{ members: Member[] }>(`${base}/members`)
-            : Promise.resolve({ members: [] }),
-          membership.role === 'ADMIN'
-            ? api<{ events: AuditEvent[] }>(`${base}/audit`)
-            : Promise.resolve({ events: [] }),
+          api<{ events: AuditEvent[] }>(`${base}/audit`),
           api<{ notifications: Notification[] }>(`${base}/notifications`),
         ]);
         if (generation !== requestGeneration.current) return;
         setVehicles(dashboard.vehicles);
-        setMembers(people.members);
         setEvents(audit.events);
         setNotifications(alerts.notifications);
       } catch (e) {
@@ -143,11 +127,10 @@ export function App() {
         if (generation === requestGeneration.current) setBusy(false);
       }
     },
-    [orgId, membership?.role],
+    [orgId],
   );
   useEffect(() => {
     setVehicles([]);
-    setMembers([]);
     setEvents([]);
     setNotifications([]);
     setSelectedVehicle(null);
@@ -160,9 +143,6 @@ export function App() {
     };
   }, [load]);
   async function saved(message: string) {
-    const current = await api<Session>('/session');
-    setSession(current);
-    if (!orgId) setOrgId(current.memberships[0]?.organizationId ?? '');
     await load(true);
     setToast(message);
   }
@@ -171,8 +151,11 @@ export function App() {
       const subscription = await currentPushSubscription().catch(() => null);
       await write('/auth/logout', { pushEndpoint: subscription?.endpoint });
       await subscription?.unsubscribe().catch(() => {});
+      requestGeneration.current++;
       setSession(null);
       setVehicles([]);
+      setEvents([]);
+      setNotifications([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível sair.');
     }
@@ -182,19 +165,6 @@ export function App() {
     setQuery('');
     setFilter('ALL');
     setMobileMenu(false);
-  }
-  async function acceptInvite() {
-    try {
-      await write('/invitations/accept', { token: invitation });
-      setInvitation(null);
-      history.replaceState(null, '', location.pathname);
-      const current = await api<Session>('/session');
-      setSession(current);
-      setOrgId(current.memberships[current.memberships.length - 1]?.organizationId ?? '');
-      setToast('Convite aceito. Bem-vindo à frota!');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível aceitar o convite.');
-    }
   }
   if (authLoading)
     return (
@@ -207,46 +177,21 @@ export function App() {
   if (!session)
     return (
       <Login
-        invitation={invitation}
-        onInvitationConsumed={() => {
-          setInvitation(null);
-          history.replaceState(null, '', location.pathname);
-        }}
-        onLogin={(s) => {
-          setSession(s);
-          setOrgId(s.memberships[0]?.organizationId ?? '');
+        onLogin={(value) => {
+          setSession(value);
           navigate('overview');
         }}
       />
     );
-  const attention = vehicles.filter((v) => v.status.level !== 'OK');
-  const due = vehicles.filter((v) => v.status.level === 'DUE');
-  const displayed = [...vehicles]
+  const displayed = vehicles
     .filter(
       (v) =>
         (filter === 'ALL' || v.status.level === filter) &&
-        `${v.name} ${v.plate} ${v.assignedDriverName ?? ''}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
+        `${v.name} ${v.plate}`.toLowerCase().includes(query.toLowerCase()),
     )
     .sort((a, b) => priority[a.status.level] - priority[b.status.level]);
   const unread = notifications.filter((n) => !n.readAt).length;
-  const pageNames: Record<Page, string> = {
-    overview: 'Visão geral',
-    vehicles: fleet ? 'Veículos' : 'Minha garagem',
-    drivers: 'Motoristas',
-    history: 'Histórico',
-    alerts: 'Notificações',
-  };
-  const nav = [
-    { id: 'overview' as const, icon: LayoutDashboard, label: 'Visão geral' },
-    { id: 'vehicles' as const, icon: CarFront, label: fleet ? 'Veículos' : 'Meu carro' },
-    ...(fleet && canManage
-      ? [{ id: 'drivers' as const, icon: UsersRound, label: 'Motoristas' }]
-      : []),
-    ...(canManage ? [{ id: 'history' as const, icon: ClipboardList, label: 'Histórico' }] : []),
-    { id: 'alerts' as const, icon: Bell, label: 'Notificações' },
-  ];
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileMenu ? 'is-open' : ''}`}>
@@ -260,28 +205,7 @@ export function App() {
             <X size={20} />
           </button>
         </div>
-        <span className="sidebar-caption">SEU ESPAÇO</span>
-        <div className="workspace-selector">
-          <span className="workspace-icon">
-            {fleet ? <UsersRound size={18} /> : <CarFront size={18} />}
-          </span>
-          <select
-            aria-label="Selecionar garagem ou frota"
-            value={orgId}
-            onChange={(e) => {
-              setOrgId(e.target.value);
-              navigate('overview');
-            }}
-          >
-            {session.memberships.map((m) => (
-              <option key={m.organizationId} value={m.organizationId}>
-                {m.companyName}
-              </option>
-            ))}
-            {!session.memberships.length && <option value="">Sem espaço</option>}
-          </select>
-          <ChevronDown size={14} />
-        </div>
+        <span className="sidebar-caption">SUA GARAGEM</span>
         <nav aria-label="Menu principal">
           {nav.map((item) => (
             <button
@@ -298,10 +222,6 @@ export function App() {
             </button>
           ))}
         </nav>
-        <button className="new-workspace" onClick={() => setDialog({ type: 'organization' })}>
-          <Plus size={15} />
-          Criar outro espaço
-        </button>
         <div className="sidebar-bottom">
           <div className="care-note">
             <span>
@@ -311,31 +231,17 @@ export function App() {
             <p>Um pouco de atenção hoje. Muito mais caminho amanhã.</p>
             <span className="note-line" />
           </div>
-          {local && (
-            <a
-              className="support-link"
-              href={mailpitUrl ?? undefined}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Mail size={17} />
-              Caixa de e-mails
-              <ArrowUpRight size={14} />
-            </a>
-          )}
           <button className="profile" onClick={logout} title="Sair da conta">
             <span className="avatar">
               {session.user.name
                 .split(' ')
-                .map((n) => n[0])
+                .map((name) => name[0])
                 .slice(0, 2)
                 .join('')}
             </span>
             <span>
               <strong>{session.user.name}</strong>
-              <small>
-                {canManage ? (fleet ? 'Gestora de frota' : 'Garagem pessoal') : 'Motorista'}
-              </small>
+              <small>Garagem pessoal</small>
             </span>
             <LogOut size={16} />
           </button>
@@ -353,7 +259,7 @@ export function App() {
               <Menu size={22} />
             </button>
             <span className="breadcrumb">
-              {fleet ? 'Minha frota' : 'Minha garagem'}
+              Minha garagem
               <ChevronRight size={13} />
               <strong>{pageNames[page]}</strong>
             </span>
@@ -380,28 +286,6 @@ export function App() {
           </div>
         </header>
         <main className="content">
-          {invitation && (
-            <div className="invite-banner">
-              <Mail size={20} />
-              <div>
-                <strong>Você recebeu um convite para uma frota.</strong>
-                <span>Aceite usando a conta com o e-mail convidado.</span>
-              </div>
-              <button className="button primary" onClick={acceptInvite}>
-                Aceitar convite
-              </button>
-              <button
-                className="icon-button"
-                aria-label="Dispensar convite"
-                onClick={() => {
-                  setInvitation(null);
-                  history.replaceState(null, '', location.pathname);
-                }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-          )}
           <div className="page-heading">
             <div>
               <span className="eyebrow">
@@ -411,33 +295,23 @@ export function App() {
               </span>
               <h1>
                 {page === 'overview'
-                  ? `Olá, ${session.user.name.split(' ')[0]} ${fleet ? '' : '👋'}`
+                  ? `Olá, ${session.user.name.split(' ')[0]} 👋`
                   : pageNames[page]}
               </h1>
               <p>
                 {page === 'overview'
-                  ? fleet
-                    ? 'Veja como está sua frota e o que precisa de atenção hoje.'
-                    : 'Seu carro em dia. Sua rotina mais tranquila.'
+                  ? 'Seu carro em dia. Sua rotina mais tranquila.'
                   : page === 'vehicles'
                     ? 'Cada veículo, cada cuidado, tudo no mesmo lugar.'
-                    : page === 'drivers'
-                      ? 'Conecte sua equipe aos veículos da frota.'
-                      : page === 'history'
-                        ? 'Uma linha do tempo dos cuidados com seus veículos.'
-                        : 'Os próximos cuidados, sem deixar nada passar.'}
+                    : page === 'history'
+                      ? 'Uma linha do tempo dos cuidados com seus veículos.'
+                      : 'Os próximos cuidados, sem deixar nada passar.'}
               </p>
             </div>
-            {canManage && ['overview', 'vehicles'].includes(page) && (
+            {orgId && ['overview', 'vehicles'].includes(page) && (
               <button className="button primary" onClick={() => setDialog({ type: 'create' })}>
                 <Plus size={18} />
                 Adicionar veículo
-              </button>
-            )}
-            {canManage && page === 'drivers' && (
-              <button className="button primary" onClick={() => setDialog({ type: 'invite' })}>
-                <Plus size={18} />
-                Convidar motorista
               </button>
             )}
           </div>
@@ -451,163 +325,18 @@ export function App() {
           {busy ? (
             <div className="content-loading">
               <LoaderCircle className="spin" />
-              Carregando seu espaço…
+              Carregando sua garagem…
             </div>
-          ) : !membership ? (
-            <Empty
-              title="Seu próximo caminho começa aqui"
-              action={
-                <button
-                  className="button primary"
-                  onClick={() => setDialog({ type: 'organization' })}
-                >
-                  <Plus size={17} />
-                  Criar meu espaço
-                </button>
-              }
-            >
-              Crie uma garagem pessoal ou uma frota para começar.
+          ) : !garage ? (
+            <Empty title="Não foi possível abrir sua garagem">
+              Saia e entre novamente para preparar sua garagem pessoal.
             </Empty>
           ) : (
             <>
               {page === 'overview' &&
-                (fleet ? (
-                  <>
-                    <div className="stats-grid">
-                      <Stat
-                        title="Veículos na frota"
-                        value={vehicles.length.toString().padStart(2, '0')}
-                        caption="Veículos ativos no seu espaço"
-                        icon={<CarFront size={19} />}
-                      />
-                      <Stat
-                        title="Em dia"
-                        value={(vehicles.length - attention.length).toString().padStart(2, '0')}
-                        caption="Prontos para seguir viagem"
-                        icon={<ShieldCheck size={19} />}
-                        tone="green"
-                      />
-                      <Stat
-                        title="Precisam de atenção"
-                        value={attention.length.toString().padStart(2, '0')}
-                        caption={`${due.length} ${due.length === 1 ? 'troca vencida' : 'trocas vencidas'} · ${attention.length - due.length} próximas`}
-                        icon={<AlertTriangle size={19} />}
-                        tone="amber"
-                      />
-                      <Stat
-                        title={canManage ? 'Motoristas' : 'Seus veículos'}
-                        value={(canManage
-                          ? members.filter((m) => m.role === 'DRIVER').length
-                          : vehicles.length
-                        )
-                          .toString()
-                          .padStart(2, '0')}
-                        caption={
-                          canManage ? 'Pessoas que movem a sua frota' : 'Veículos atribuídos a você'
-                        }
-                        icon={<UsersRound size={19} />}
-                      />
-                    </div>
-                    <section className="attention-section">
-                      <SectionHeading
-                        eyebrow="UM OLHAR MAIS ATENTO"
-                        title="No radar da manutenção"
-                        action={
-                          <TextLink
-                            onClick={() => {
-                              navigate('vehicles');
-                              setFilter('WARNING');
-                            }}
-                          >
-                            Ver veículos
-                          </TextLink>
-                        }
-                      />
-                      {attention.length ? (
-                        <div className="attention-grid">
-                          {attention.slice(0, 3).map((v) => (
-                            <AttentionCard
-                              key={v.id}
-                              v={v}
-                              onSelect={() => setSelectedVehicle(v)}
-                              onAction={() =>
-                                setDialog({ type: canManage ? 'oil' : 'reading', vehicle: v })
-                              }
-                              canManage={canManage}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="all-good">
-                          <ShieldCheck size={27} />
-                          <div>
-                            <h3>Tudo em dia por aqui.</h3>
-                            <p>Seus veículos estão prontos para o próximo caminho.</p>
-                          </div>
-                          <Sparkles size={21} />
-                        </div>
-                      )}
-                    </section>
-                    <div className="fleet-main">
-                      <section className="panel fleet-table-panel">
-                        <SectionHeading
-                          title="Sua frota"
-                          action={
-                            <TextLink onClick={() => navigate('vehicles')}>Ver todos</TextLink>
-                          }
-                        />
-                        <VehicleTable
-                          vehicles={displayed}
-                          fleet={fleet}
-                          onSelect={setSelectedVehicle}
-                          onRead={(v) => setDialog({ type: 'reading', vehicle: v })}
-                        />
-                      </section>
-                      <aside className="fleet-insights">
-                        <div className="insight-card">
-                          <div className="insight-title">
-                            <TrendingUp size={18} />
-                            <span>UM CUIDADO A MAIS</span>
-                          </div>
-                          <h3>Prevenir é o melhor caminho.</h3>
-                          <p>
-                            Trocar o óleo no momento certo ajuda a preservar o motor e evitar
-                            paradas inesperadas.
-                          </p>
-                          <div className="insight-divider" />
-                          <div className="insight-numbers">
-                            <strong>
-                              {vehicles.length
-                                ? Math.round(
-                                    ((vehicles.length - attention.length) / vehicles.length) * 100,
-                                  )
-                                : 0}
-                              %
-                            </strong>
-                            <span>
-                              da frota com a<br />
-                              manutenção em dia
-                            </span>
-                          </div>
-                        </div>
-                        <div className="calibration-note">
-                          <Gauge size={23} />
-                          <h3>Uma leitura faz a diferença.</h3>
-                          <p>
-                            Atualize a quilometragem a cada 30 dias para ter previsões mais
-                            precisas.
-                          </p>
-                          <TextLink onClick={() => navigate('vehicles')}>
-                            Atualizar leituras
-                          </TextLink>
-                        </div>
-                      </aside>
-                    </div>
-                  </>
-                ) : vehicles.length ? (
+                (vehicles.length ? (
                   <PersonalDashboard
                     vehicle={vehicles[0]}
-                    canManage={canManage}
                     onAction={setDialog}
                     onSelect={setSelectedVehicle}
                     events={events}
@@ -636,7 +365,7 @@ export function App() {
                     <div className="search-input">
                       <Search size={17} />
                       <input
-                        placeholder="Buscar veículo, placa ou motorista"
+                        placeholder="Buscar veículo ou placa"
                         aria-label="Buscar veículo"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -709,7 +438,6 @@ export function App() {
                     ) : (
                       <VehicleTable
                         vehicles={displayed}
-                        fleet={fleet}
                         onSelect={setSelectedVehicle}
                         onRead={(v) => setDialog({ type: 'reading', vehicle: v })}
                       />
@@ -724,9 +452,7 @@ export function App() {
                     >
                       {vehicles.length
                         ? 'Tente outro nome, placa ou situação.'
-                        : canManage
-                          ? 'Use “Adicionar veículo” para cadastrar o primeiro.'
-                          : 'O gestor poderá atribuir um veículo a você.'}
+                        : 'Use “Adicionar veículo” para cadastrar o primeiro.'}
                     </Empty>
                   )}
                   <div className="table-footer">
@@ -737,61 +463,9 @@ export function App() {
                   </div>
                 </section>
               )}
-              {page === 'drivers' && canManage && (
-                <section className="panel">
-                  <div className="table-toolbar">
-                    <h2>
-                      Equipe da frota <span className="count-pill">{members.length}</span>
-                    </h2>
-                    <span className="muted">As atribuições preservam o histórico do veículo.</span>
-                  </div>
-                  <div className="members-list">
-                    {members.map((m) => (
-                      <div className="member-row" key={m.id}>
-                        <span className="avatar">
-                          {m.name
-                            .split(' ')
-                            .map((n) => n[0])
-                            .slice(0, 2)
-                            .join('')}
-                        </span>
-                        <div className="member-name">
-                          <strong>{m.name}</strong>
-                          <small>{m.email}</small>
-                        </div>
-                        <span className={`role-pill ${m.role === 'ADMIN' ? 'admin' : ''}`}>
-                          {m.role === 'ADMIN' ? 'Gestor' : 'Motorista'}
-                        </span>
-                        <span className="member-count">
-                          {m.assignedCount} {m.assignedCount === 1 ? 'veículo' : 'veículos'}
-                        </span>
-                        {m.role === 'DRIVER' && (
-                          <button
-                            className="icon-button"
-                            aria-label={`Remover ${m.name}`}
-                            title={
-                              m.assignedCount
-                                ? 'Desvincule os veículos antes de remover'
-                                : 'Remover da frota'
-                            }
-                            onClick={() => setDialog({ type: 'removeMember', member: m })}
-                          >
-                            <Trash2 size={17} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="panel-footnote">
-                    <ShieldCheck size={16} />
-                    Motoristas veem apenas veículos atribuídos e podem atualizar a quilometragem.
-                    Gestores cuidam de toda a frota.
-                  </div>
-                </section>
-              )}
-              {page === 'history' && canManage && (
+              {page === 'history' && (
                 <section className="panel history-panel">
-                  <SectionHeading title="Atividade do seu espaço" />
+                  <SectionHeading title="Seu histórico de cuidados" />
                   <AuditList events={events} />
                 </section>
               )}
@@ -829,8 +503,8 @@ export function App() {
                         className={`notification-row ${!n.readAt ? 'unread' : ''}`}
                         key={n.id}
                         onClick={() => {
-                          const v = vehicles.find((v) => v.id === n.vehicleId);
-                          if (v) setSelectedVehicle(v);
+                          const vehicle = vehicles.find((v) => v.id === n.vehicleId);
+                          if (vehicle) setSelectedVehicle(vehicle);
                         }}
                       >
                         <span className="notification-icon">
@@ -865,7 +539,7 @@ export function App() {
         </main>
       </div>
       <nav className="bottom-nav" aria-label="Navegação móvel">
-        {nav.slice(0, 5).map((item) => (
+        {nav.map((item) => (
           <button
             key={item.id}
             className={page === item.id ? 'active' : ''}
@@ -881,7 +555,6 @@ export function App() {
           key={`${orgId}-${dialog.type}`}
           state={dialog}
           org={orgId}
-          members={members}
           onClose={() => setDialog(null)}
           onSaved={saved}
         />
@@ -890,8 +563,6 @@ export function App() {
         <VehicleDetail
           vehicle={vehicles.find((v) => v.id === selectedVehicle.id) ?? selectedVehicle}
           org={orgId}
-          canManage={canManage}
-          fleet={fleet}
           onClose={() => setSelectedVehicle(null)}
           onAction={setDialog}
         />
@@ -910,59 +581,12 @@ export function App() {
     </div>
   );
 }
-
-function AttentionCard({
-  v,
-  onSelect,
-  onAction,
-  canManage,
-}: {
-  v: Vehicle;
-  onSelect: () => void;
-  onAction: () => void;
-  canManage: boolean;
-}) {
-  return (
-    <article className={`attention-card ${v.status.level.toLowerCase()}`}>
-      <div className="attention-top">
-        <span className="car-icon">
-          <CarFront size={20} />
-        </span>
-        <Status vehicle={v} />
-      </div>
-      <button className="plain vehicle-title" onClick={onSelect}>
-        <strong>{v.name}</strong>
-        <ArrowUpRight size={16} />
-      </button>
-      <span className="plate">{v.plate}</span>
-      <p>
-        {v.status.level === 'DUE'
-          ? 'A troca de óleo precisa de atenção.'
-          : v.status.trigger === 'TIME'
-            ? `Troca em até ${v.status.daysRemaining} dias.`
-            : `Faltam ${km(v.status.distanceRemainingKm)} km para a troca.`}
-      </p>
-      <div className="attention-bottom">
-        <span>
-          <Droplets size={14} />
-          {OIL_LABELS[v.oilType]}
-        </span>
-        <button onClick={onAction}>
-          {canManage ? 'Registrar troca' : 'Atualizar km'}
-          <ArrowRight size={14} />
-        </button>
-      </div>
-    </article>
-  );
-}
 function VehicleTable({
   vehicles,
-  fleet,
   onSelect,
   onRead,
 }: {
   vehicles: Vehicle[];
-  fleet: boolean;
   onSelect: (v: Vehicle) => void;
   onRead: (v: Vehicle) => void;
 }) {
@@ -976,7 +600,6 @@ function VehicleTable({
         <thead>
           <tr>
             <th>Veículo</th>
-            {fleet && <th>Motorista</th>}
             <th>
               Quilometragem <ArrowDown size={12} />
             </th>
@@ -1003,26 +626,7 @@ function VehicleTable({
                   </span>
                 </button>
               </td>
-              {fleet && (
-                <td>
-                  <span className={`driver-cell ${!v.assignedDriverName ? 'unassigned' : ''}`}>
-                    {v.assignedDriverName ? (
-                      <>
-                        <span className="avatar tiny">
-                          {v.assignedDriverName
-                            .split(' ')
-                            .map((n) => n[0])
-                            .slice(0, 2)
-                            .join('')}
-                        </span>
-                        {v.assignedDriverName.split(' ')[0]}
-                      </>
-                    ) : (
-                      'Sem motorista'
-                    )}
-                  </span>
-                </td>
-              )}
+
               <td>
                 <strong className="table-km">
                   {km(v.currentOdometer)} <small>km</small>
@@ -1072,7 +676,6 @@ function VehicleTable({
 }
 function PersonalDashboard({
   vehicle: v,
-  canManage,
   onAction,
   onSelect,
   events,
@@ -1080,7 +683,6 @@ function PersonalDashboard({
   otherVehicles,
 }: {
   vehicle: Vehicle;
-  canManage: boolean;
   onAction: (s: DialogState) => void;
   onSelect: (v: Vehicle) => void;
   events: AuditEvent[];
@@ -1149,15 +751,10 @@ function PersonalDashboard({
               <Gauge size={17} />
               Atualizar quilometragem
             </button>
-            {canManage && (
-              <button
-                className="button subtle"
-                onClick={() => onAction({ type: 'oil', vehicle: v })}
-              >
-                Já troquei o óleo
-                <ArrowRight size={16} />
-              </button>
-            )}
+            <button className="button subtle" onClick={() => onAction({ type: 'oil', vehicle: v })}>
+              Já troquei o óleo
+              <ArrowRight size={16} />
+            </button>
           </div>
         </div>
       </div>
@@ -1268,10 +865,6 @@ function AuditList({ events }: { events: AuditEvent[] }) {
               <Droplets size={18} />
             ) : e.action === 'ODOMETER_UPDATED' ? (
               <Gauge size={18} />
-            ) : e.action.includes('INVITATION') ? (
-              <Mail size={18} />
-            ) : e.action === 'DRIVER_ASSIGNED' ? (
-              <UserRound size={18} />
             ) : (
               <CarFront size={18} />
             )}

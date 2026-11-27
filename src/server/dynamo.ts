@@ -141,23 +141,17 @@ type RegistrationItem = {
   pk: string;
   sk: string;
   data: Record<string, unknown>;
-  unacceptedInvite?: boolean;
 };
 
 export async function writeRegistration(items: RegistrationItem[]) {
   try {
     await client.send(
       new TransactWriteItemsCommand({
-        TransactItems: items.map(({ pk, sk, data, unacceptedInvite }) => ({
+        TransactItems: items.map(({ pk, sk, data }) => ({
           Put: {
             TableName: table,
             Item: encode({ ...data, pk, sk }),
-            ConditionExpression: unacceptedInvite
-              ? 'attribute_exists(pk) AND attribute_not_exists(acceptedAt) AND expiresAt > :now'
-              : 'attribute_not_exists(pk)',
-            ExpressionAttributeValues: unacceptedInvite
-              ? { ':now': { N: String(Date.now()) } }
-              : undefined,
+            ConditionExpression: 'attribute_not_exists(pk)',
           },
         })),
       }),
@@ -170,11 +164,7 @@ export async function writeRegistration(items: RegistrationItem[]) {
         (reason) => reason.Code === 'ConditionalCheckFailed',
       )
     ) {
-      throw new AppError(
-        409,
-        'REGISTRATION_CONFLICT',
-        'A conta já existe ou o convite não está mais disponível.',
-      );
+      throw new AppError(409, 'REGISTRATION_CONFLICT', 'A conta já existe.');
     }
     throw error;
   }

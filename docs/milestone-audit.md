@@ -1,43 +1,36 @@
-# Objetivos da disciplina e estado do AutoKeep
+# Requisitos da disciplina e evidências
 
-Resumo dos requisitos descritos no [quadro de milestones do professor](https://github.com/users/ederson-torresini/projects/6)
-e nas [issues da disciplina](https://github.com/ederson-torresini/isn20262),
-comparados às evidências deste repositório e da implantação AWS confirmada em
-18/11/2026.
-“Implementado” indica evidência no código/configuração; só “validado” indica
-que o fluxo foi executado com sucesso. Confirmar no quadro do professor se os
-critérios detalhados diferirem deste resumo.
+Referência principal: [requisitos oficiais do professor](https://github.com/ederson-torresini/isn20262/blob/main/requisitos.md).
+O [quadro de milestones](https://github.com/users/ederson-torresini/projects/6)
+pode conter critérios adicionais por entrega. Esta matriz distingue código
+existente, validação executada e pendência; não declara a disciplina concluída.
 
-| Entrega | Estado | Evidência / o que falta demonstrar |
-| --- | --- | --- |
-| Requisitos, regras, casos de uso e documentação | Parcial | Há README, contratos OpenAPI e documentos de arquitetura/implementação. Conferir se diagramas, fluxos e especificação exigidos estão completos e coerentes com a solução atual. |
-| IaC com Pulumi e ambientes dev/prod | Implementado; operação validada em prod | `pulumi-start-aws/` tem configuração de ambas as stacks. A stack `prod` adotou recursos existentes e concluiu update #10; antes de reaplicar, use os comandos do guia Pulumi e revise o preview. |
-| DNS e domínio por IaC | Implementado e acessível | Hosted zone `autokeep.negoci.online` existente/delegada; registros A/AAAA e certificado ACM são geridos pela stack. O site abre em `https://autokeep.negoci.online`. |
-| Ambiente local para API, funções e banco | Parcial | Docker Compose sobe app, DynamoDB Local e Mailpit. O projeto não inclui template AWS SAM; se a issue exige SAM especificamente, esse item continua pendente. |
-| Banco cloud e Lambda publicada | Implementado; teste de negócio pendente | `autokeep-prod` e `autokeep-api-prod` existentes/adotados. O Pulumi integra API Gateway HTTP à Lambda. Falta demonstrar login, escrita/leitura e isolamento de ponta a ponta na AWS. |
-| CDN, API Gateway, HTTPS e integração Lambda | Implementado; saúde pública a verificar | S3 privado, CloudFront, API Gateway, ACM e Lambda fazem parte do deploy. A página inicial foi aberta no domínio; executar também `curl -i https://autokeep.negoci.online/api/health` e os testes de fluxo. |
-| Frontend e autenticação | Implementado | Frontend React e autenticação com sessão estão no código e no site. Testar os perfis, autorização por organização e persistência no endpoint publicado. |
-| Email/convites | Parcial | Mailpit recebe emails somente no ambiente local. Na nuvem, o app fornece link copiável; envio real de email e recuperação/verificação por email não estão configurados. |
-| Testes unitários e de integração | Implementado no repositório; execução recente pendente | Existem `npm test` e `npm run test:integration`. Executar e registrar evidência antes da entrega; integração usa DynamoDB Local descartável. |
-| CI/CD | Pendente | Não há workflow automatizado em `.github/workflows`. O deploy atual é feito explicitamente pelo Pulumi no Codespace. |
+| Requisito                                                           | Situação e evidência                                                                                                                                                                       |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Aplicação web cliente-servidor; frontend sob demanda; backend cloud | Implementado: React, Express/Lambda, S3/CloudFront e API Gateway.                                                                                                                          |
+| REST documentado                                                    | Contrato atual em `openapi.local.yaml`; conferir contrato e testes quando endpoints mudarem.                                                                                               |
+| Autenticação e autorização por provedor externo                     | Google OAuth em produção; cada conta acessa somente sua garagem. Login real em produção já foi validado antes da refatoração e deve ser repetido após o deploy.                            |
+| Persistência e modelagem de dados                                   | DynamoDB Local e tabelas cloud separadas; arquitetura documentada. Diagramas e especificação antigos precisam ser conferidos para a entrega da garagem pessoal.                            |
+| E-mail e notificações                                               | Notificações no app implementadas; envio real de e-mail continua pendente e é obrigatório no documento do professor. Web Push tem testes simulados, sem comprovação de entrega em celular. |
+| Auditoria de operações críticas                                     | Implementada em login/logout, veículos, leituras e manutenção; histórico preservado no arquivamento.                                                                                       |
+| Cenários dev/prod e implantação cloud via IaC                       | Configuração Pulumi existe para ambos. Publicação funcional de dev e regressão de prod devem ter evidência da aplicação desta refatoração.                                                 |
+| DNS, HTTPS e CDN                                                    | Produção publicada em `autokeep.negoci.online`, com zona delegada, ACM e CloudFront geridos por Pulumi. Dev usa a Function URL da Lambda existente.                                        |
+| Implantação automática prod com CI/CD                               | CI existente em `.github/workflows/ci.yml` testa e gera builds. CD de produção ainda pendente; publicação manual pelo Pulumi não cumpre implantação automática.                            |
+| Ambiente local e SAM                                                | Compose com DynamoDB Local; `template.yaml`, scripts `sam:*` e `sam/environment.json` existem. Registrar execução SAM e critérios específicos da milestone.                                |
+| Testes                                                              | `npm test`, integração com banco descartável e builds disponíveis. Testes locais e fluxos pessoais em produção foram executados antes do refactor; repetir após a alteração.               |
+| Responsividade, latência e custo mínimo                             | Exigem evidências: testes em celular, medições e revisão de Billing. A existência de CDN ou créditos não comprova metas.                                                                   |
 
-## Limites funcionais conhecidos
+Gestão de frota e perfis de gestor/motorista não aparecem no documento geral
+como requisitos. Sua remoção preserva autenticação, autorização por dono,
+manutenção, persistência, notificações e auditoria.
 
-- Não há notificações em background nem scheduler cloud; os avisos são
-  avaliados quando o usuário abre a caixa de notificações.
-- Não há envio remoto de email, push, operação offline ou leitura automática
-  de OBD2. O valor OBD2 é informado/confirmado pelo usuário.
-- A hospedagem e o fluxo principal existem, mas isso não substitui evidência de
-  testes de autorização, concorrência, carga ou metas de latência.
-- `pulumi destroy` não é um comando de desligamento seguro: recursos estão
-  protegidos contra exclusão e alguns têm retenção. Ver
-  [`pulumi-start-aws/README.md`](../pulumi-start-aws/README.md).
+## Pendências para a entrega
 
-## Próxima sequência de validação
+1. Implementar e validar e-mail real com recurso/custo previamente autorizado.
+2. Configurar deploy automático de produção via CI/CD, com credenciais de escopo mínimo.
+3. Registrar resultados de dev/prod, SAM, responsividade e latência.
+4. Conferir diagramas, especificação e critérios detalhados do quadro do professor.
 
-1. Executar testes unitários, integração local e builds pelo README.
-2. Na URL pública, validar `/api/health`, login, leitura/gravação e isolamento
-   com mais de um perfil/organização.
-3. Confirmar com o professor se SAM e envio real de email são critérios
-   obrigatórios para as issues correspondentes; implementar apenas se exigidos.
-4. Adicionar CI/CD e salvar evidências de cada milestone, caso o rubric exija.
+GPS, Bluetooth/OBD2 automático e offline são evoluções de produto, não
+exigências identificadas no documento geral. O estudo GPS está em
+[gps-study.md](gps-study.md).

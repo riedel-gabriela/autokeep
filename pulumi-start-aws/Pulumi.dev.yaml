@@ -4,3 +4,4 @@ config:
   autokeep:tableName: autokeep-dev
   autokeep:functionName: autokeep-api-dev
   autokeep:roleArn: arn:aws:iam::672791231338:role/autokeep-api-dev
+  autokeep:hostingEnabled: false

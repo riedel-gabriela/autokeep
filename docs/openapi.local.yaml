@@ -1,71 +1,94 @@
 openapi: 3.1.0
 info:
-  title: AutoKeep — API unificada
-  version: 0.1.0
+  title: AutoKeep — garagem pessoal
+  version: 0.2.0
   description: |
-    API DynamoDB compartilhada por Docker, Vercel e Lambda. Sessões HttpOnly; escritas exigem Origin
-    igual a APP_ORIGIN e Content-Type application/json, inclusive DELETE.
-    Datas em ISO 8601, UTC. API original Cognito em openapi.yaml.
+    API compartilhada pelo Docker e AWS Lambda. Sessão por cookie HttpOnly.
+    Escritas exigem Origin igual a APP_ORIGIN e Content-Type application/json,
+    inclusive DELETE. Datas ISO 8601 com offset; datas futuras são rejeitadas.
+    organizationId identifica a garagem pessoal legada e não uma frota.
 servers:
-  - url: http://localhost:8080/api
+  - url: /api
 security:
-  - localSession: []
+  - sessionCookie: []
 paths:
   /health:
     get:
       security: []
       responses:
-        '200': { description: API e banco disponíveis }
-  /auth/login:
-    post:
+        '200': { description: API e acesso ao banco disponíveis }
+  /auth/providers:
+    get:
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [email, password]
-              properties:
-                email: { type: string, format: email, maxLength: 254 }
-                password: { type: string, minLength: 1, maxLength: 72 }
       responses:
         '200':
-          description: Sessão criada; Set-Cookie autokeep_session
+          description: Provedores habilitados neste servidor
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [google, development, password]
+                properties:
+                  google: { type: boolean }
+                  development: { type: boolean }
+                  password: { type: boolean, const: false }
+  /auth/dev-login:
+    post:
+      security: []
+      description: Disponível somente com NODE_ENV=development e DEV_LOGIN_ENABLED=true, fora do modo Google.
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200':
+          description: Sessão da conta pessoal de teste criada
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
-        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
-  /auth/logout:
-    post:
-      responses:
-        '204': { description: Sessão revogada }
-  /auth/register-invited:
+  /auth/google/start:
     post:
       security: []
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200':
+          description: URL de autorização Google e cookie temporário HttpOnly
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string, format: uri }
+        '400': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/google/callback:
+    get:
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+      responses:
+        '303':
+          {
+            description: Redireciona à aplicação; sucesso abre sessão,
+            falha informa código googleError,
+          }
+  /auth/logout:
+    post:
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties: false
-              required: [token, name, password]
               properties:
-                token: { type: string, minLength: 43, maxLength: 43 }
-                name: { type: string, minLength: 2, maxLength: 100 }
-                password: { type: string, minLength: 12, maxLength: 72 }
+                pushEndpoint: { type: string, format: uri }
       responses:
-        '201': { description: Conta criada como DRIVER usando o e-mail do convite }
-        '404': { $ref: '#/components/responses/Error' }
-        '409': { $ref: '#/components/responses/Error' }
+        '204': { description: Sessão revogada }
   /session:
     get:
       responses:
         '200':
-          description: Identidade e espaços disponíveis
+          description: Conta e garagem pessoal
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
@@ -73,55 +96,16 @@ paths:
   /me/organizations:
     get:
       responses:
-        '200': { description: Objeto organizations com array de Membership }
-  /organizations:
-    post:
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [companyName]
-              properties:
-                companyName: { type: string, minLength: 2, maxLength: 100 }
-                kind: { type: string, enum: [PERSONAL, FLEET], default: FLEET }
-      responses:
-        '201': { description: Objeto id; o criador torna-se ADMIN }
-  /invitations/accept:
-    post:
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [token]
-              properties:
-                token: { type: string, minLength: 43, maxLength: 43 }
-      responses:
-        '200': { description: Convite aceito pela conta com e-mail correspondente }
-        '403': { $ref: '#/components/responses/Error' }
+        '200': { description: Objeto organizations com associações pessoais do proprietário }
   /organizations/{organizationId}/dashboard:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
+    parameters: [{ $ref: '#/components/parameters/OrganizationId' }]
     get:
       responses:
-        '200':
-          description: Apenas veículos visíveis à identidade autenticada
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  vehicles: { type: array, items: { $ref: '#/components/schemas/Vehicle' } }
+        '200': { description: Objeto vehicles com veículos ativos da garagem }
+        '403': { $ref: '#/components/responses/Error' }
   /organizations/{organizationId}/vehicles:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
+    parameters: [{ $ref: '#/components/parameters/OrganizationId' }]
     post:
-      description: ADMIN; cria a leitura inicial e a manutenção informada.
       requestBody:
         required: true
         content:
@@ -130,26 +114,25 @@ paths:
       responses:
         '201': { description: Objeto id do veículo criado }
         '400': { $ref: '#/components/responses/Error' }
-        '403': { $ref: '#/components/responses/Error' }
   /organizations/{organizationId}/vehicles/{vehicleId}:
     parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-      - $ref: '#/components/parameters/VehicleId'
+      - { $ref: '#/components/parameters/OrganizationId' }
+      - { $ref: '#/components/parameters/VehicleId' }
     get:
       responses:
-        '200': { description: Objeto vehicle com detalhes e três últimas leituras }
+        '200': { description: Objeto vehicle com dados, leituras, projeção e status de manutenção }
         '404': { $ref: '#/components/responses/Error' }
     delete:
-      description: ADMIN; arquiva preservando todos os históricos.
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
-        '204': { description: Veículo arquivado }
-        '403': { $ref: '#/components/responses/Error' }
+        '204': { description: Veículo arquivado; histórico preservado }
+        '404': { $ref: '#/components/responses/Error' }
   /organizations/{organizationId}/vehicles/{vehicleId}/odometer:
     parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-      - $ref: '#/components/parameters/VehicleId'
+      - { $ref: '#/components/parameters/OrganizationId' }
+      - { $ref: '#/components/parameters/VehicleId' }
     post:
-      description: ADMIN ou DRIVER atribuído. Rejeita datas futuras, regressão e ordem invertida.
+      description: Rejeita quilometragem regressiva e data igual ou anterior à última leitura.
       requestBody:
         required: true
         content:
@@ -157,21 +140,20 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [odometer, source, measuredAt]
+              required: [odometer, measuredAt, source]
               properties:
                 odometer: { $ref: '#/components/schemas/Odometer' }
-                source: { type: string, enum: [MANUAL, OBD2] }
                 measuredAt: { type: string, format: date-time }
+                source: { type: string, enum: [MANUAL, OBD2] }
       responses:
-        '201': { description: Leitura salva; média e previsão recalculadas na consulta }
+        '201': { description: Leitura registrada; objeto ok }
         '400': { $ref: '#/components/responses/Error' }
-        '404': { $ref: '#/components/responses/Error' }
   /organizations/{organizationId}/vehicles/{vehicleId}/oil-changes:
     parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-      - $ref: '#/components/parameters/VehicleId'
+      - { $ref: '#/components/parameters/OrganizationId' }
+      - { $ref: '#/components/parameters/VehicleId' }
     post:
-      description: ADMIN; valida coerência com leituras e manutenção anterior.
+      description: Troca posterior à última manutenção e consistente com as leituras registradas.
       requestBody:
         required: true
         content:
@@ -185,95 +167,72 @@ paths:
                 changedAt: { type: string, format: date-time }
                 oilType: { $ref: '#/components/schemas/OilType' }
       responses:
-        '201': { description: Novo ciclo de óleo criado }
-        '400': { $ref: '#/components/responses/Error' }
-        '403': { $ref: '#/components/responses/Error' }
-  /organizations/{organizationId}/vehicles/{vehicleId}/driver:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-      - $ref: '#/components/parameters/VehicleId'
-    put:
-      description: ADMIN de FLEET; o alvo deve ser DRIVER da mesma organização.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [driverId]
-              properties:
-                driverId: { type: [string, 'null'], format: uuid }
-      responses:
-        '200': { description: Atribuição alterada sem mudar histórico ou calibração }
+        '201': { description: Troca registrada; objeto ok }
         '400': { $ref: '#/components/responses/Error' }
   /organizations/{organizationId}/vehicles/{vehicleId}/history:
     parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-      - $ref: '#/components/parameters/VehicleId'
+      - { $ref: '#/components/parameters/OrganizationId' }
+      - { $ref: '#/components/parameters/VehicleId' }
     get:
       responses:
-        '200': { description: Objetos readings e oilChanges, até 100 de cada em ordem decrescente }
-  /organizations/{organizationId}/members:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
+        '200': { description: Objetos readings e oilChanges com histórico do veículo }
+  /organizations/{organizationId}/audit:
+    parameters: [{ $ref: '#/components/parameters/OrganizationId' }]
     get:
-      description: Apenas ADMIN.
       responses:
-        '200': { description: Objeto members com id, name, email, role e assignedCount }
-  /organizations/{organizationId}/members/{memberId}:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-      - name: memberId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    delete:
-      description: ADMIN; remove apenas DRIVER sem atribuições ativas.
+        '200': { description: Objeto events com até 100 eventos críticos da garagem }
+  /organizations/{organizationId}/notifications:
+    parameters: [{ $ref: '#/components/parameters/OrganizationId' }]
+    get:
       responses:
-        '204': { description: Associação removida; acesso revogado }
-        '409': { $ref: '#/components/responses/Error' }
-  /organizations/{organizationId}/invitations:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
+        '200':
+          { description: Objeto notifications; avalia manutenção e persiste avisos deduplicados }
+  /organizations/{organizationId}/notifications/read:
+    parameters: [{ $ref: '#/components/parameters/OrganizationId' }]
     post:
-      description: ADMIN de FLEET; entrega local no Mailpit.
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: Avisos do proprietário marcados como lidos; objeto ok }
+  /push/config:
+    get:
+      responses:
+        '200': { description: publicKey VAPID ou null quando desabilitado }
+  /push/subscription:
+    post:
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties: false
-              required: [email]
+              required: [endpoint, keys]
               properties:
-                email: { type: string, format: email, maxLength: 254 }
+                endpoint: { type: string, format: uri }
+                keys:
+                  type: object
+                  required: [p256dh, auth]
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
       responses:
-        '201': { description: Objeto invitationUrl e expiresInDays; token somente no fragmento }
+        '204': { description: Assinatura registrada para a conta }
         '409': { $ref: '#/components/responses/Error' }
-  /organizations/{organizationId}/audit:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-    get:
-      description: Apenas ADMIN.
+        '503': { $ref: '#/components/responses/Error' }
+    delete:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint: { type: string, format: uri }
       responses:
-        '200': { description: Objeto events com até 100 atividades recentes }
-  /organizations/{organizationId}/notifications:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-    get:
-      responses:
-        '200':
-          { description: Objeto notifications; apenas avisos do usuário e veículos ainda visíveis }
-  /organizations/{organizationId}/notifications/read:
-    parameters:
-      - $ref: '#/components/parameters/OrganizationId'
-    post:
-      responses:
-        '200': { description: Notificações do próprio usuário marcadas como lidas }
+        '204': { description: Assinatura própria removida }
 components:
   securitySchemes:
-    localSession:
+    sessionCookie:
       type: apiKey
       in: cookie
       name: autokeep_session
@@ -288,14 +247,20 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+  requestBodies:
+    Empty:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: false }
   responses:
     Error:
-      description: Erro da solicitação
+      description: Erro com code, message e errorId; 400 entrada inválida, 401 sem sessão, 403 sem acesso, 404 inexistente, 415 formato inválido.
       content:
         application/json:
           schema:
             type: object
-            required: [code, message]
+            required: [code, message, errorId]
             properties:
               code: { type: string }
               message: { type: string }
@@ -303,24 +268,6 @@ components:
   schemas:
     Odometer: { type: number, minimum: 0, maximum: 9999999.9, multipleOf: 0.1 }
     OilType: { type: string, enum: [MINERAL, SEMI_SYNTHETIC, SYNTHETIC] }
-    Membership:
-      type: object
-      required: [organizationId, companyName, kind, role]
-      properties:
-        organizationId: { type: string, format: uuid }
-        companyName: { type: string }
-        kind: { type: string, enum: [PERSONAL, FLEET] }
-        role: { type: string, enum: [ADMIN, DRIVER] }
-    Session:
-      type: object
-      properties:
-        user:
-          type: object
-          properties:
-            id: { type: string, format: uuid }
-            name: { type: string }
-            email: { type: string, format: email }
-        memberships: { type: array, items: { $ref: '#/components/schemas/Membership' } }
     CreateVehicle:
       type: object
       additionalProperties: false
@@ -338,47 +285,35 @@ components:
       properties:
         name: { type: string, minLength: 2, maxLength: 100 }
         plate: { type: string, pattern: '^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$' }
-        year: { type: integer, minimum: 1950, description: No máximo o ano corrente mais um }
+        year: { type: integer, minimum: 1950, description: Até o ano atual mais um }
         oilType: { $ref: '#/components/schemas/OilType' }
         trackingMode: { type: string, enum: [MANUAL, OBD2] }
         currentOdometer: { $ref: '#/components/schemas/Odometer' }
         lastOilChangeKm: { $ref: '#/components/schemas/Odometer' }
         lastOilChangeDate: { type: string, format: date-time }
-    Vehicle:
+    Session:
       type: object
-      description: Campos de CreateVehicle, identidade, atribuição, leituras reais e estado calculado.
+      required: [user, memberships]
       properties:
-        id: { type: string, format: uuid }
-        organizationId: { type: string, format: uuid }
-        name: { type: string }
-        plate: { type: string }
-        year: { type: integer }
-        currentOdometer: { type: number }
-        predictedOdometer: { type: number }
-        avgDailyKm: { type: number }
-        calibrationDue: { type: boolean }
-        assignedDriverId: { type: [string, 'null'], format: uuid }
-        assignedDriverName: { type: [string, 'null'] }
-        lastUpdateDate: { type: string, format: date-time }
-        lastOilChangeDate: { type: string, format: date-time }
-        lastOilChangeKm: { type: number }
-        oilType: { $ref: '#/components/schemas/OilType' }
-        trackingMode: { type: string, enum: [MANUAL, OBD2] }
-        historicalEntries:
+        user:
+          type: object
+          required: [id, name, email]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            email: { type: string, format: email }
+        memberships:
           type: array
-          maxItems: 3
           items:
             type: object
+            required: [organizationId, companyName, kind, role]
             properties:
-              id: { type: string, format: uuid }
-              odometer: { type: number }
-              source: { type: string, enum: [MANUAL, OBD2] }
-              measuredAt: { type: string, format: date-time }
-        status:
-          type: object
-          properties:
-            level: { type: string, enum: [OK, WARNING, DUE] }
-            trigger: { type: [string, 'null'], enum: [DISTANCE, TIME, null] }
-            distanceRemainingKm: { type: number }
-            daysRemaining: { type: integer }
-            projectedDueDate: { type: string, format: date-time }
+              organizationId: { type: string, format: uuid }
+              companyName: { type: string }
+              kind: { type: string, const: PERSONAL }
+              role:
+                {
+                  type: string,
+                  const: ADMIN,
+                  description: Identificador legado interno de proprietário,
+                }

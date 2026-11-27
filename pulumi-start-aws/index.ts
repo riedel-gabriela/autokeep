@@ -89,60 +89,81 @@ const table = new aws.dynamodb.Table(
 );
 
 const lambdaCodePath = resolve(process.cwd(), '../dist/autokeep-lambda.zip');
-const currentLambda = hostingEnabled
-  ? aws.lambda.getFunctionOutput({ functionName }, { provider })
-  : undefined;
-const appOrigin = hostingEnabled ? config.require('appOrigin') : undefined;
-if (googleClientId || googleSecretArn) {
+if (stack === 'dev' && hostingEnabled) {
+  throw new Error('Dev usa a Function URL existente; hostingEnabled deve ficar false.');
+}
+const devFunctionUrl =
+  stack === 'dev'
+    ? new aws.lambda.FunctionUrl(
+        'dev-url',
+        {
+          functionName,
+          authorizationType: 'NONE',
+          invokeMode: 'BUFFERED',
+        },
+        { provider, import: functionName, protect: true, retainOnDelete: true },
+      )
+    : undefined;
+if (stack === 'dev') {
+  new aws.lambda.Permission(
+    'dev-url-access',
+    {
+      function: functionName,
+      statementId: 'FunctionURLAllowPublicAccess',
+      action: 'lambda:InvokeFunctionUrl',
+      principal: '*',
+      functionUrlAuthType: 'NONE',
+    },
+    {
+      provider,
+      import: `${functionName}/FunctionURLAllowPublicAccess`,
+      protect: true,
+      retainOnDelete: true,
+    },
+  );
+  new aws.lambda.Permission(
+    'dev-url-invoke',
+    {
+      function: functionName,
+      statementId: 'FunctionURLAllowInvokeAction',
+      action: 'lambda:InvokeFunction',
+      principal: '*',
+      invokedViaFunctionUrl: true,
+    },
+    {
+      provider,
+      import: `${functionName}/FunctionURLAllowInvokeAction`,
+      protect: true,
+      retainOnDelete: true,
+    },
+  );
+}
+const appOrigin =
+  stack === 'prod'
+    ? pulumi.output(config.require('appOrigin'))
+    : devFunctionUrl!.functionUrl.apply((url) => url.replace(/\/$/, ''));
+if (stack === 'prod') {
   const expectedArnPrefix = `arn:aws:secretsmanager:us-east-1:${accountId}:secret:`;
   if (!hostingEnabled || !googleClientId || !googleSecretArn?.startsWith(expectedArnPrefix))
-    throw new Error(
-      'Configure hostingEnabled, googleClientId e o ARN do segredo para a stack selecionada.',
-    );
-  const publicUrl = new URL(appOrigin!);
-  if (publicUrl.origin !== appOrigin || publicUrl.protocol !== 'https:')
-    throw new Error('appOrigin do OAuth deve ser uma origem HTTPS sem caminho ou barra final.');
+    throw new Error('Produção exige hostingEnabled, googleClientId e googleClientSecretArn.');
+  const origin = config.require('appOrigin');
+  if (new URL(origin).origin !== origin || !origin.startsWith('https://'))
+    throw new Error('appOrigin deve ser uma origem HTTPS sem caminho ou barra final.');
 }
-const preservedEnvironment =
-  currentLambda &&
-  pulumi
-    .all([currentLambda.environment, pushPrivateKey])
-    .apply(([environment, vapidPrivateKey]) => {
-      const variables = environment.variables ?? {};
-      const resolvedGoogleClientId = googleClientId || variables.GOOGLE_CLIENT_ID;
-      const resolvedGoogleSecretArn = googleSecretArn || variables.GOOGLE_CLIENT_SECRET_ARN;
-      if (stack === 'prod') {
-        const expectedArnPrefix = `arn:aws:secretsmanager:us-east-1:${accountId}:secret:`;
-        if (!resolvedGoogleClientId || !resolvedGoogleSecretArn?.startsWith(expectedArnPrefix))
-          throw new Error(
-            'Produção exige OAuth Google: configure googleClientId e googleClientSecretArn ou preserve esses valores na Lambda existente.',
-          );
-      }
-      return {
-        ...variables,
-        DYNAMODB_TABLE: tableName,
-        APP_ORIGIN: appOrigin!,
-        AUTH_MODE: stack === 'prod' ? 'google' : 'password',
-        ...(resolvedGoogleClientId && resolvedGoogleSecretArn
-          ? {
-              GOOGLE_CLIENT_ID: resolvedGoogleClientId,
-              GOOGLE_CLIENT_SECRET_ARN: resolvedGoogleSecretArn,
-            }
-          : stack === 'dev'
-            ? { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET_ARN: '' }
-            : {}),
-        ...(stack === 'dev'
-          ? {
-              PUSH_PUBLIC_KEY: pushPublicKey,
-              PUSH_PRIVATE_KEY: vapidPrivateKey,
-              PUSH_SUBJECT: pushSubject,
-            }
-          : {}),
-      };
-    });
-
-if (hostingEnabled && !existsSync(lambdaCodePath)) {
-  throw new Error('Execute npm run build:lambda antes de ativar hostingEnabled.');
+const environment = pulumi.all([appOrigin, pushPrivateKey]).apply(([origin, privateKey]) => ({
+  NODE_ENV: stack === 'prod' ? 'production' : 'development',
+  DYNAMODB_TABLE: tableName,
+  APP_ORIGIN: origin,
+  AUTH_MODE: stack === 'prod' ? 'google' : 'development',
+  DEV_LOGIN_ENABLED: stack === 'dev' ? 'true' : 'false',
+  GOOGLE_CLIENT_ID: stack === 'prod' ? googleClientId! : '',
+  GOOGLE_CLIENT_SECRET_ARN: stack === 'prod' ? googleSecretArn! : '',
+  PUSH_PUBLIC_KEY: pushPublicKey,
+  PUSH_PRIVATE_KEY: privateKey,
+  PUSH_SUBJECT: pushSubject,
+}));
+if (!existsSync(lambdaCodePath)) {
+  throw new Error('Execute npm run build e npm run build:lambda antes do Pulumi.');
 }
 
 const api = new aws.lambda.Function(
@@ -158,15 +179,9 @@ const api = new aws.lambda.Function(
     architectures: ['x86_64'],
     ephemeralStorage: { size: 512 },
     loggingConfig: { logFormat: 'Text', logGroup: `/aws/lambda/${functionName}` },
-    ...(hostingEnabled
-      ? {
-          code: new pulumi.asset.FileArchive(lambdaCodePath),
-          sourceCodeHash: createHash('sha256')
-            .update(readFileSync(lambdaCodePath))
-            .digest('base64'),
-          environment: { variables: pulumi.secret(preservedEnvironment!) },
-        }
-      : {}),
+    code: new pulumi.asset.FileArchive(lambdaCodePath),
+    sourceCodeHash: createHash('sha256').update(readFileSync(lambdaCodePath)).digest('base64'),
+    environment: { variables: pulumi.secret(environment) },
   },
   {
     provider,
@@ -174,26 +189,11 @@ const api = new aws.lambda.Function(
     protect: true,
     retainOnDelete: true,
     additionalSecretOutputs: ['environment'],
-    // Adopting an existing function must preserve its code and environment.
-    ignoreChanges: hostingEnabled
-      ? ['tags', 'tagsAll', 'vpcConfig', 'tracingConfig']
-      : [
-          'code',
-          'sourceCodeHash',
-          's3Bucket',
-          's3Key',
-          's3ObjectVersion',
-          'imageUri',
-          'environment',
-          'tags',
-          'tagsAll',
-          'vpcConfig',
-          'tracingConfig',
-        ],
+    ignoreChanges: ['tags', 'tagsAll', 'vpcConfig', 'tracingConfig'],
   },
 );
 
-if (googleSecretArn) {
+if (stack === 'prod' && googleSecretArn) {
   new aws.iam.RolePolicy(
     'google-oauth-secret-read',
     {
@@ -572,5 +572,7 @@ export const apiGatewayUrl = hostingApiUrl;
 export const cloudFrontUrl = hostingCloudFrontUrl;
 export const cloudFrontDistributionId = hostingDistributionId;
 export const googleCallbackUrl = googleClientId
-  ? new URL('/api/auth/google/callback', appOrigin!).href
+  ? appOrigin.apply((origin) => new URL('/api/auth/google/callback', origin).href)
   : undefined;
+
+export const appUrl = stack === 'dev' ? appOrigin : config.require('appOrigin');

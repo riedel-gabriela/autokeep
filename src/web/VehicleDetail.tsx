@@ -7,7 +7,6 @@ import {
   Gauge,
   History,
   Pencil,
-  UserRound,
 } from 'lucide-react';
 import type { OilChange, Reading, Vehicle } from '../shared/domain.js';
 import { OIL_LABELS } from '../shared/domain.js';
@@ -18,15 +17,11 @@ import type { DialogState } from './forms.js';
 export function VehicleDetail({
   vehicle: v,
   org,
-  canManage,
-  fleet,
   onClose,
   onAction,
 }: {
   vehicle: Vehicle;
   org: string;
-  canManage: boolean;
-  fleet: boolean;
   onClose: () => void;
   onAction: (state: DialogState) => void;
 }) {
@@ -49,7 +44,7 @@ export function VehicleDetail({
       active = false;
     };
   }, [org, v.id, v.lastUpdateDate, v.lastOilChangeDate]);
-  function action(type: 'reading' | 'oil' | 'assign' | 'archive') {
+  function action(type: 'reading' | 'oil' | 'archive') {
     onClose();
     onAction({ type, vehicle: v });
   }
@@ -105,30 +100,16 @@ export function VehicleDetail({
             <CalendarDays size={16} />
             Última troca em {date(v.lastOilChangeDate)}
           </span>
-          {fleet && (
-            <span>
-              <UserRound size={16} />
-              {v.assignedDriverName ?? 'Sem motorista atribuído'}
-            </span>
-          )}
         </div>
         <div className="detail-actions">
           <button className="button primary" onClick={() => action('reading')}>
             <Gauge size={17} />
             Atualizar km
           </button>
-          {canManage && (
-            <button className="button secondary" onClick={() => action('oil')}>
-              <Droplets size={17} />
-              Registrar troca
-            </button>
-          )}
-          {canManage && fleet && (
-            <button className="button secondary" onClick={() => action('assign')}>
-              <UserRound size={17} />
-              Motorista
-            </button>
-          )}
+          <button className="button secondary" onClick={() => action('oil')}>
+            <Droplets size={17} />
+            Registrar troca
+          </button>
         </div>
         <h3 className="history-heading">
           <History size={18} /> Histórico de manutenção
@@ -171,13 +152,11 @@ export function VehicleDetail({
             </strong>
           </div>
         ))}
-        {canManage && (
-          <button className="danger-link" onClick={() => action('archive')}>
-            <Archive size={15} />
-            Arquivar veículo
-            <ArrowUpRight size={14} />
-          </button>
-        )}
+        <button className="danger-link" onClick={() => action('archive')}>
+          <Archive size={15} />
+          Arquivar veículo
+          <ArrowUpRight size={14} />
+        </button>
       </div>
     </Modal>
   );

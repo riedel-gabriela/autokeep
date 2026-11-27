@@ -1,5 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import express from 'express';
+import { join } from 'node:path';
 import { createApp, runMaintenancePush } from '../src/server/app.js';
 
 type FunctionUrlEvent = {
@@ -13,6 +15,14 @@ type FunctionUrlEvent = {
 };
 
 const app = createApp();
+// Development reuses the existing Function URL, avoiding a second CDN and bucket.
+const developmentHosting =
+  process.env.NODE_ENV === 'development' && process.env.DEV_LOGIN_ENABLED === 'true';
+if (developmentHosting) {
+  const webDirectory = join(__dirname, 'web');
+  app.use(express.static(webDirectory));
+  app.get('/{*path}', (_req, res) => res.sendFile(join(webDirectory, 'index.html')));
+}
 let server: Promise<Server> | undefined;
 
 function startServer() {
@@ -35,7 +45,7 @@ export async function handler(
   const listener = await startServer();
   const port = (listener.address() as AddressInfo).port;
   const path = event.rawPath || '/';
-  if (!path.startsWith('/api/')) {
+  if (!path.startsWith('/api/') && !developmentHosting) {
     return {
       statusCode: 404,
       headers: { 'content-type': 'application/json' },

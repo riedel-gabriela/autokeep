@@ -8,3 +8,5 @@ config:
   autokeep:hostingEnabled: true
   autokeep:customDomainEnabled: true
   autokeep:appOrigin: https://autokeep.negoci.online
+  autokeep:googleClientId: 669192113145-lcahooo51jvvj94v2au963m4rd1o140a.apps.googleusercontent.com
+  autokeep:googleClientSecretArn: arn:aws:secretsmanager:us-east-1:672791231338:secret:autokeep/google-oauth-client-secret-deHK8U

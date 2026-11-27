@@ -6,7 +6,7 @@ import test from 'node:test';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
-test('Google login blocks state mismatch and replay, and public signup creates only a new workspace', async (t) => {
+test('production Google login blocks development access, state mismatch and replay', async (t) => {
   const issuer = 'https://accounts.google.com';
   const clientId = 'autokeep-test';
   const items = new Map();
@@ -39,7 +39,7 @@ test('Google login blocks state mismatch and replay, and public signup creates o
     }
   });
   t.mock.method(SecretsManagerClient.prototype, 'send', async () => ({
-    SecretString: 'test-secret',
+    SecretString: JSON.stringify({ 'autokeep/google-oauth-client-secret': 'test-secret' }),
   }));
 
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -47,8 +47,9 @@ test('Google login blocks state mismatch and replay, and public signup creates o
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   let nonce: string | null;
   let exchanges = 0;
+  const googleSubject = 'google-personal';
   const browserFetch = globalThis.fetch;
-  t.mock.method(globalThis, 'fetch', async (input) => {
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
     const url = new URL(String(input));
     assert.equal(url.origin, issuer);
     if (url.pathname === '/.well-known/openid-configuration')
@@ -63,6 +64,7 @@ test('Google login blocks state mismatch and replay, and public signup creates o
       });
     if (url.pathname === '/keys') return Response.json({ keys: [jwk] });
     assert.equal(url.pathname, '/token');
+    assert.equal(new URLSearchParams(String(init?.body)).get('client_secret'), 'test-secret');
     exchanges++;
     const timestamp = Math.floor(Date.now() / 1000);
     const message = [
@@ -70,7 +72,7 @@ test('Google login blocks state mismatch and replay, and public signup creates o
       encode({
         iss: issuer,
         aud: clientId,
-        sub: 'google-driver',
+        sub: googleSubject,
         email: 'user@example.com',
         email_verified: true,
         nonce,
@@ -86,6 +88,8 @@ test('Google login blocks state mismatch and replay, and public signup creates o
     });
   });
 
+  process.env.NODE_ENV = 'production';
+  process.env.DEV_LOGIN_ENABLED = 'true';
   process.env.APP_ORIGIN = 'https://autokeep.test';
   process.env.AUTH_MODE = 'google';
   process.env.GOOGLE_CLIENT_ID = clientId;
@@ -100,25 +104,13 @@ test('Google login blocks state mismatch and replay, and public signup creates o
   await once(server, 'listening');
   const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
   const providers = await browserFetch(`${endpoint}/auth/providers`);
-  assert.deepEqual(await providers.json(), { google: true, password: false });
-  const blockedPassword = await browserFetch(`${endpoint}/auth/login`, {
+  assert.deepEqual(await providers.json(), { google: true, development: false, password: false });
+  const blockedDevelopment = await browserFetch(`${endpoint}/auth/dev-login`, {
     method: 'POST',
     headers: { origin: process.env.APP_ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'ana@autokeep.local', password: process.env.DEMO_PASSWORD }),
+    body: '{}',
   });
-  assert.equal(blockedPassword.status, 403);
-  const blockedPasswordRegistration = await browserFetch(`${endpoint}/auth/register-invited`, {
-    method: 'POST',
-    headers: { origin: process.env.APP_ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      token: 'A'.repeat(43),
-      name: 'Convidado',
-      password: 'strong-password-123',
-    }),
-  });
-  assert.equal(blockedPasswordRegistration.status, 403);
-  const hiddenDemoCredentials = await browserFetch(`${endpoint}/auth/demo-credentials`);
-  assert.equal(hiddenDemoCredentials.status, 404);
+  assert.equal(blockedDevelopment.status, 404);
   const start = async (body = {}) => {
     const started = await browserFetch(`${endpoint}/auth/google/start`, {
       method: 'POST',
@@ -162,20 +154,18 @@ test('Google login blocks state mismatch and replay, and public signup creates o
 
   linked = false;
   const unlinked = await begin();
-  assert.equal((await unlinked()).headers.get('location'), '/?googleError=GOOGLE_ACCOUNT_UNLINKED');
-  assert.equal(registration.length, 0);
-  const invalid = await start({ workspace: { kind: 'DRIVER', name: 'Frota de terceiros' } });
-  assert.equal(invalid.status, 400);
-  const signup = await begin({ workspace: { kind: 'FLEET', name: 'Minha frota' } });
-  assert.equal((await signup()).headers.get('location'), '/');
-  const organization = registration.find(
+  assert.equal((await unlinked()).headers.get('location'), '/');
+  const organizations = [...items.values()].filter(
     (item) => item.pk.S.startsWith('ORG#') && item.sk.S === 'PROFILE',
   );
-  assert.equal(organization?.kind.S, 'FLEET');
-  assert.equal(organization?.name.S, 'Minha frota');
-  const memberships = registration.filter((item) => item.role);
-  assert.equal(memberships.length, 2);
-  assert.ok(memberships.every((item) => item.role.S === 'ADMIN'));
-  assert.equal(memberships[0].pk.S, organization.pk.S);
-  assert.equal(memberships[1].sk.S, organization.pk.S);
+  assert.ok(organizations.length > 0);
+  assert.ok(organizations.every((item) => item.kind.S === 'PERSONAL'));
+  assert.equal(registration.length, 3);
+  for (const body of [
+    { workspace: { kind: 'FLEET', name: 'Frota' } },
+    { invitation: 'A'.repeat(43) },
+    { credentials: { email: 'x@example.com', password: 'x' } },
+  ]) {
+    assert.equal((await start(body)).status, 400);
+  }
 });
